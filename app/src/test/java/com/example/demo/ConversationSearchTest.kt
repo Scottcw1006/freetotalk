@@ -405,6 +405,10 @@ class ConversationSearchTest {
         val text = "😀".repeat(15) + "測" + "北京" + "尾".repeat(60)
         val hit = searchConversations("北京", listOf(thread(replied(text)))).single().hits.single()
 
+        // Without this, an implementation that returns an empty snippet passes: there is
+        // no half-character in a string with no characters.
+        assertTrue("the snippet lost the query", hit.snippet.contains("北京"))
+
         hit.snippet.forEachIndexed { index, character ->
             if (character.isHighSurrogate()) {
                 assertTrue(
@@ -432,6 +436,10 @@ class ConversationSearchTest {
         // the high half of the sixteenth pair, since the emoji run starts at 39.
         val text = "測".repeat(30) + "北京" + "尾".repeat(7) + "😀".repeat(20)
         val hit = searchConversations("北京", listOf(thread(replied(text)))).single().hits.single()
+
+        // Without this, an implementation that returns an empty snippet passes: there is
+        // no half-character in a string with no characters.
+        assertTrue("the snippet lost the query", hit.snippet.contains("北京"))
 
         hit.snippet.forEachIndexed { index, character ->
             if (character.isHighSurrogate()) {
