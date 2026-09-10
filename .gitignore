@@ -1,0 +1,19 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# 模型檔是產物不是原始碼，而且單檔就超過 GitHub 的 100MB 硬上限。
+# 一旦進了歷史就要重寫歷史才拿得掉 —— 這一行是為了讓「以後接上遠端」保持在兩行指令的難度。
+app/src/main/assets/*.task

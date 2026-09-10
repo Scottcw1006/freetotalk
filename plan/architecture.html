@@ -1,0 +1,1045 @@
+<title>小助理架構</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --ground:   #EDEFF0;
+    --surface:  #F8F9FA;
+    --sunk:     #E3E7E9;
+    --ink:      #171C20;
+    --muted:    #59646C;
+    --faint:    #7E8991;
+    --rule:     #D0D7DB;
+    --rule-firm:#B3BEC4;
+    --accent:   #4C7346;
+    --accent-soft: #E2EBDF;
+    --warm:     #9C5F2B;
+    --warm-soft:#F3E6D8;
+    --shadow:   0 1px 2px rgba(23,28,32,.06), 0 8px 24px -16px rgba(23,28,32,.28);
+
+    --display: "Archivo", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    --body: "IBM Plex Sans", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    --mono: "IBM Plex Mono", "Noto Sans TC", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #12171A;
+      --surface:  #1A2126;
+      --sunk:     #0D1114;
+      --ink:      #E2E7EA;
+      --muted:    #99A5AC;
+      --faint:    #7B868D;
+      --rule:     #2A343A;
+      --rule-firm:#3C484F;
+      --accent:   #8FB587;
+      --accent-soft: #22301F;
+      --warm:     #D39A5F;
+      --warm-soft:#302317;
+      --shadow:   0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:   #12171A;
+    --surface:  #1A2126;
+    --sunk:     #0D1114;
+    --ink:      #E2E7EA;
+    --muted:    #99A5AC;
+    --faint:    #7B868D;
+    --rule:     #2A343A;
+    --rule-firm:#3C484F;
+    --accent:   #8FB587;
+    --accent-soft: #22301F;
+    --warm:     #D39A5F;
+    --warm-soft:#302317;
+    --shadow:   0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 56px 24px 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ---- masthead ---- */
+
+  .masthead { display: flex; flex-direction: column; gap: 14px; }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(34px, 5.4vw, 52px);
+    line-height: 1.1;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    margin: 0;
+    max-width: 62ch;
+    font-size: 17px;
+    color: var(--muted);
+  }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin-top: 6px;
+  }
+
+  .fact {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 10px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    color: var(--muted);
+    background: var(--surface);
+  }
+
+  /* ---- sections ---- */
+
+  section { display: flex; flex-direction: column; gap: 18px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(23px, 3vw, 29px);
+    line-height: 1.24;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 17px;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: 68ch; }
+
+  a { color: var(--accent); }
+
+  code {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  strong { font-weight: 600; }
+
+  /* ---- figures ---- */
+
+  figure {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .frame {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 20px;
+    overflow-x: auto;
+    box-shadow: var(--shadow);
+  }
+
+  .frame svg {
+    display: block;
+    width: 100%;
+    min-width: 660px;
+    height: auto;
+    color: var(--ink);
+  }
+
+  figcaption {
+    font-size: 14px;
+    color: var(--muted);
+    max-width: 72ch;
+    padding-left: 14px;
+    border-left: 2px solid var(--rule-firm);
+  }
+
+  /* svg primitives */
+  .box  { fill: var(--sunk); stroke: var(--rule-firm); stroke-width: 1.2; }
+  .box-core { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+  .box-warm { fill: var(--warm-soft); stroke: var(--warm); stroke-width: 1.4; }
+  .lbl  { font-family: var(--mono); font-size: 12.5px; fill: var(--ink); }
+  .lbl-b { font-family: var(--display); font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+  .sub  { font-family: var(--body); font-size: 11.5px; fill: var(--muted); }
+  .edge { stroke: var(--rule-firm); stroke-width: 1.3; fill: none; }
+  .edge-core { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+  .edge-cut { stroke: var(--warm); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .etxt { font-family: var(--body); font-size: 11.5px; fill: var(--muted); }
+  .etxt-core { font-family: var(--body); font-size: 11.5px; fill: var(--accent); font-weight: 600; }
+  .etxt-cut { font-family: var(--body); font-size: 11.5px; fill: var(--warm); font-weight: 600; }
+  .num { font-family: var(--mono); font-size: 11px; font-weight: 500; fill: var(--accent); }
+  .layer { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .14em; fill: var(--faint); }
+  .mk { fill: currentColor; }
+  .mk-accent { fill: var(--accent); }
+  .mk-warm { fill: var(--warm); }
+
+  /* ---- tables ---- */
+
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 14.5px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+
+  thead th {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    background: var(--sunk);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  td.path { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+  td.num-cell { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.layer-cell { font-family: var(--mono); font-size: 12px; color: var(--faint); white-space: nowrap; }
+
+  /* ---- code ---- */
+
+  pre {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.66;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    color: var(--ink);
+  }
+
+  .split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  .split h3 { margin-bottom: 8px; }
+  .split > div { display: flex; flex-direction: column; gap: 8px; }
+
+  /* ---- notes ---- */
+
+  .notes { display: flex; flex-direction: column; gap: 16px; }
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .note.caution { border-left-color: var(--warm); }
+  .note p { font-size: 15px; color: var(--muted); max-width: 70ch; }
+
+  ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 68ch; }
+  li::marker { color: var(--faint); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    font-size: 13px;
+    color: var(--faint);
+    font-family: var(--mono);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    a { transition: opacity .15s ease; }
+    a:hover { opacity: .72; }
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="kicker">Android · 裝置端推論</div>
+    <h1>小助理架構</h1>
+    <p class="standfirst">
+      一個完全離線的 IM 聊天 App：三個 LLM 打包在 APK 裡，五個可切換的人格，對話各自獨立存檔，也找得回說過的每一句話。
+      沒有網路、沒有 API key，所有推論都在手機的 CPU 上跑完。
+    </p>
+    <div class="facts">
+      <span class="fact">Kotlin 2.2.10</span>
+      <span class="fact">AGP 9.3.1</span>
+      <span class="fact">minSdk 31</span>
+      <span class="fact">Compose BOM 2026.02</span>
+      <span class="fact">mediapipe tasks-genai 0.10.35</span>
+      <span class="fact">arm64-v8a + x86_64</span>
+      <span class="fact">約 3,000 行 Kotlin</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="eyebrow">元件</div>
+    <h2>三個畫面，一個引擎</h2>
+    <p>
+      聊天頁和比較頁各有自己的 ViewModel，但它們共用同一個 <code>LlmEngine</code> 單例。
+      這不是為了省記憶體管理的工，而是因為<strong>一次只能有一個模型常駐</strong>——每個模型載入後佔用數百 MB 的 native 記憶體，
+      同時放兩個就是在等 low-memory killer 上門。
+    </p>
+    <p>
+      第三個畫面是搜尋，它<strong>刻意沒有自己的 ViewModel</strong>：它讀的就是聊天頁那一份狀態。
+      搜尋要找的是「使用者看得到的對話」，而唯一知道那是什麼的就是聊天頁的狀態——
+      另開一個 ViewModel 等於再去磁碟拿一份，那份會少掉還沒存檔的對話和正在串流的回覆。
+      三個畫面之間也沒有導航框架，只有兩個布林旗標決定現在顯示哪一個。
+    </p>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 920 620" role="img" aria-label="元件圖：ChatScreen 與 SearchScreen 共用同一個 ChatViewModel，CompareScreen 對應 CompareViewModel，兩個 ViewModel 都呼叫同一個 LlmEngine 單例；ChatViewModel 另外連到 Persona、ConversationSearch 與 ConversationRepository，Repository 之下是 ConversationStore；LlmEngine 之下是 ModelSpec、ModelStore 與 MediaPipe 原生程式庫。">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+            <marker id="a1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk-accent" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+          </defs>
+
+          <!-- layer labels, right-aligned clear of every box -->
+          <text class="layer" x="912" y="56" text-anchor="end">UI</text>
+          <text class="layer" x="912" y="166" text-anchor="end">VIEWMODEL</text>
+          <text class="layer" x="912" y="244" text-anchor="end">CORE</text>
+          <text class="layer" x="912" y="400" text-anchor="end">DATA</text>
+          <text class="layer" x="912" y="516" text-anchor="end">NATIVE</text>
+
+          <!-- UI row -->
+          <rect class="box" x="20" y="30" width="200" height="52" rx="4"/>
+          <text class="lbl-b" x="34" y="52">ChatScreen</text>
+          <text class="sub" x="34" y="70">氣泡串流・人格選單・歷史抽屜</text>
+
+          <rect class="box" x="250" y="30" width="200" height="52" rx="4"/>
+          <text class="lbl-b" x="264" y="52">SearchScreen</text>
+          <text class="sub" x="264" y="70">邊打邊篩・命中片段標示</text>
+
+          <rect class="box" x="480" y="30" width="250" height="52" rx="4"/>
+          <text class="lbl-b" x="496" y="52">CompareScreen</text>
+          <text class="sub" x="496" y="70">模型勾選・並排結果・速度數字</text>
+
+          <!-- VM row -->
+          <rect class="box" x="95" y="140" width="280" height="58" rx="4"/>
+          <text class="lbl-b" x="111" y="163">ChatViewModel</text>
+          <text class="sub" x="111" y="182">對話狀態・800 字上限・存檔・查詢字串</text>
+
+          <rect class="box" x="480" y="140" width="250" height="58" rx="4"/>
+          <text class="lbl-b" x="496" y="163">CompareViewModel</text>
+          <text class="sub" x="496" y="182">依序執行・計時・中性 prompt</text>
+
+          <line class="edge" x1="120" y1="82" x2="120" y2="136" marker-end="url(#a1)"/>
+          <line class="edge" x1="350" y1="82" x2="350" y2="136" marker-end="url(#a1)"/>
+          <text class="etxt" x="360" y="116">共用同一份狀態</text>
+          <line class="edge" x1="605" y1="82" x2="605" y2="136" marker-end="url(#a1)"/>
+
+          <!-- side deps -->
+          <rect class="box" x="20" y="250" width="200" height="46" rx="4"/>
+          <text class="lbl" x="32" y="270">Persona</text>
+          <text class="sub" x="32" y="286">5 種人格 = 5 段 systemPrompt</text>
+
+          <rect class="box" x="20" y="316" width="200" height="56" rx="4"/>
+          <text class="lbl" x="32" y="336">ConversationSearch</text>
+          <text class="sub" x="32" y="352">純邏輯：比對・裁片段</text>
+          <text class="sub" x="32" y="366">算出標示位置</text>
+
+          <path class="edge" d="M150 198 L106 198 L106 246" marker-end="url(#a1)"/>
+          <text class="etxt" x="26" y="232">systemPrompt</text>
+
+          <path class="edge" d="M232 198 L232 436"/>
+          <text class="etxt" x="240" y="240">查詢・讀寫對話</text>
+          <line class="edge" x1="232" y1="344" x2="224" y2="344" marker-end="url(#a1)"/>
+          <line class="edge" x1="232" y1="436" x2="224" y2="436" marker-end="url(#a1)"/>
+
+          <!-- data column -->
+          <rect class="box" x="20" y="410" width="200" height="52" rx="4"/>
+          <text class="lbl" x="32" y="430">ConversationRepository</text>
+          <text class="sub" x="32" y="448">對話存取的唯一入口</text>
+
+          <rect class="box" x="20" y="486" width="200" height="46" rx="4"/>
+          <text class="lbl" x="32" y="506">ConversationStore</text>
+          <text class="sub" x="32" y="522">一段對話一個 JSON 檔</text>
+
+          <line class="edge" x1="120" y1="462" x2="120" y2="482" marker-end="url(#a1)"/>
+
+          <rect class="box" x="550" y="250" width="200" height="60" rx="4"/>
+          <text class="lbl" x="564" y="270">ModelSpec</text>
+          <text class="sub" x="564" y="286">模型 → prompt 格式綁定</text>
+          <text class="sub" x="564" y="302">Gemma / Qwen / SmolLM</text>
+
+          <rect class="box" x="550" y="326" width="200" height="46" rx="4"/>
+          <text class="lbl" x="564" y="346">ModelStore</text>
+          <text class="sub" x="564" y="362">assets → filesDir 解壓</text>
+
+          <!-- core -->
+          <rect class="box-core" x="340" y="250" width="180" height="122" rx="5"/>
+          <text class="lbl-b" x="356" y="274">LlmEngine</text>
+          <text class="sub" x="356" y="294">單例</text>
+          <text class="sub" x="356" y="312">Mutex 序列化</text>
+          <text class="sub" x="356" y="330">一次常駐一個模型</text>
+          <text class="sub" x="356" y="348">Flow&lt;ReplyChunk&gt;</text>
+
+          <path class="edge-core" d="M340 198 L340 228 Q340 250 366 250" marker-end="url(#a1c)"/>
+          <text class="etxt-core" x="348" y="222">reply(spec, …)</text>
+
+          <path class="edge-core" d="M530 198 L530 224 Q530 250 506 250" marker-end="url(#a1c)"/>
+          <text class="etxt-core" x="540" y="222">load + reply</text>
+
+          <line class="edge" x1="520" y1="286" x2="546" y2="286" marker-end="url(#a1)"/>
+          <line class="edge" x1="520" y1="344" x2="546" y2="344" marker-end="url(#a1)"/>
+
+
+          <!-- native -->
+          <rect class="box" x="300" y="530" width="260" height="56" rx="4"/>
+          <text class="lbl" x="316" y="552">MediaPipe LLM Inference</text>
+          <text class="sub" x="316" y="570">libllm_inference_engine_jni.so</text>
+
+          <line class="edge-core" x1="430" y1="372" x2="430" y2="526" marker-end="url(#a1c)"/>
+          <text class="etxt-core" x="440" y="424">createFromOptions</text>
+          <text class="etxt-core" x="440" y="442">addQueryChunk</text>
+          <text class="etxt-core" x="440" y="460">generateResponseAsync</text>
+
+          <!-- model file -->
+          <rect class="box-warm" x="620" y="530" width="200" height="56" rx="4"/>
+          <text class="lbl" x="634" y="552">filesDir/*.task</text>
+          <text class="sub" x="634" y="570">真實檔案路徑，非 asset</text>
+          <line class="edge" x1="616" y1="558" x2="566" y2="558" marker-end="url(#a1)"/>
+          <line class="edge" x1="700" y1="526" x2="700" y2="378" marker-end="url(#a1)"/>
+        </svg>
+      </div>
+      <figcaption>
+        兩條粗線是整個系統的瓶頸：所有生成請求都收斂到同一個 <code>LlmEngine</code>。
+        Mutex 讓聊天頁和比較頁排隊而不是同時要求推論——MediaPipe 不允許並行生成，而在生成中途換模型會更糟。
+        搜尋那一邊完全不碰引擎：它只是文字比對，沒有任何一步需要模型，所以它可以在回覆還在生成的時候照跑。
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="eyebrow">資料流</div>
+    <h2>一則訊息從送出到存檔</h2>
+    <p>
+      整條路徑上最違反直覺的一步是第 4 步：<strong>每則訊息都開一個全新的 Session</strong>，
+      把整段對話重新餵進去，而不是讓一個長壽 Session 用 KV cache 累積歷史。
+      成本是每次重新 prefill，換來兩件事——對話之間不可能互相汙染，而且人格設定每一輪都重申一次，不會隨對話變長被擠出注意力。
+    </p>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 860 420" role="img" aria-label="訊息生命週期：組上下文、取鎖並確認模型、組 prompt 並在超出預算時丟棄最舊對話、開新 Session、串流 Partial 片段、以 Complete 覆蓋、文字修復、存檔。若超過 800 字元、偵測到重複迴圈,或使用者按下停止,則取消生成並跳過 Complete。">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+            <marker id="a2w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk-warm" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+          </defs>
+
+          <!-- row 1 -->
+          <rect class="box" x="20" y="40" width="185" height="80" rx="4"/>
+          <text class="num" x="34" y="62">01</text>
+          <text class="lbl-b" x="34" y="84">組上下文</text>
+          <text class="sub" x="34" y="103">丟掉開頭的開場白</text>
+
+          <rect class="box" x="245" y="40" width="185" height="80" rx="4"/>
+          <text class="num" x="259" y="62">02</text>
+          <text class="lbl-b" x="259" y="84">取鎖・確認模型</text>
+          <text class="sub" x="259" y="103">不同模型先卸載再載入</text>
+
+          <rect class="box" x="470" y="40" width="185" height="80" rx="4"/>
+          <text class="num" x="484" y="62">03</text>
+          <text class="lbl-b" x="484" y="84">組 Prompt</text>
+          <text class="sub" x="484" y="103">依模型格式 render</text>
+
+          <rect class="box-core" x="695" y="40" width="145" height="80" rx="4"/>
+          <text class="num" x="709" y="62">04</text>
+          <text class="lbl-b" x="709" y="84">開新 Session</text>
+          <text class="sub" x="709" y="103">每則訊息都是新的</text>
+
+          <line class="edge" x1="209" y1="80" x2="241" y2="80" marker-end="url(#a2)"/>
+          <line class="edge" x1="434" y1="80" x2="466" y2="80" marker-end="url(#a2)"/>
+          <line class="edge" x1="659" y1="80" x2="691" y2="80" marker-end="url(#a2)"/>
+
+          <!-- self loop on 03 -->
+          <path class="edge" d="M562 40 Q562 6 600 6 Q638 6 638 40" marker-end="url(#a2)"/>
+          <text class="etxt" x="470" y="24">超出預算就丟最舊的一組對話</text>
+
+          <!-- down connector -->
+          <path class="edge" d="M767 120 L767 165" marker-end="url(#a2)"/>
+
+          <!-- row 2 (right to left) -->
+          <rect class="box" x="695" y="170" width="145" height="80" rx="4"/>
+          <text class="num" x="709" y="192">05</text>
+          <text class="lbl-b" x="709" y="214">串流 Partial</text>
+          <text class="sub" x="709" y="233">只用來即時顯示</text>
+
+          <rect class="box-core" x="470" y="170" width="185" height="80" rx="4"/>
+          <text class="num" x="484" y="192">06</text>
+          <text class="lbl-b" x="484" y="214">Complete 覆蓋</text>
+          <text class="sub" x="484" y="233">一次解碼，這份才可信</text>
+
+          <rect class="box" x="245" y="170" width="185" height="80" rx="4"/>
+          <text class="num" x="259" y="192">07</text>
+          <text class="lbl-b" x="259" y="214">repairModelText</text>
+          <text class="sub" x="259" y="233">byte 還原・反跳脫</text>
+
+          <rect class="box" x="20" y="170" width="185" height="80" rx="4"/>
+          <text class="num" x="34" y="192">08</text>
+          <text class="lbl-b" x="34" y="214">存檔</text>
+          <text class="sub" x="34" y="233">一段對話一個 JSON</text>
+
+          <line class="edge" x1="691" y1="210" x2="659" y2="210" marker-end="url(#a2)"/>
+          <line class="edge" x1="466" y1="210" x2="434" y2="210" marker-end="url(#a2)"/>
+          <line class="edge" x1="241" y1="210" x2="209" y2="210" marker-end="url(#a2)"/>
+
+          <!-- early-stop branch: 05 -> 07 skipping Complete -->
+          <path class="edge-cut" d="M767 250 L767 320 L338 320 L338 254" marker-end="url(#a2w)"/>
+          <text class="etxt-cut" x="240" y="342">超過 800 字元、尾巴開始重複，或使用者按下停止 → 取消生成，跳過 Complete</text>
+          <text class="etxt-cut" x="240" y="360">改用串流累積的文字，並在結尾標記中斷原因</text>
+
+          <!-- footnote line -->
+          <line class="edge" x1="20" y1="390" x2="840" y2="390" stroke-dasharray="2 5"/>
+          <text class="sub" x="20" y="410">02 至 06 全程持有 Mutex；Flow 收束時透過 awaitClose 取消生成，與「停止」按鈕共用同一條路徑</text>
+        </svg>
+      </div>
+      <figcaption>
+        虛線是提早中斷的分支，有三個觸發條件：回覆長度撞到 800 字元上限、尾巴變成同一句話不停重複，或使用者按下停止。
+        三種都是從第 5 步直接跳到第 7 步——權威的 Complete 字串永遠不會抵達，只能拿串流累積起來的文字。
+        長度那條是為 SmolLM 加的保險：它不發停止 token，放著不管會一路生成到 KV cache 塞滿。
+        迴圈那條是因為光有長度上限，讀者收到的會是 800 個字的同一句話——偵測到之後會把重複的尾巴收成兩輪，讓人看得出發生了什麼，但不必讀完整段。
+        停止那條的機制與前兩條不同：前兩條是讓串流自己收束，流程正常走完；停止是取消整個工作。差別會露在收尾上——被取消的工作裡，掛起的存檔呼叫不會執行，所以停止那一次的落盤必須另外安排，不能靠原本的收尾區塊。三條各自留下自己的標記，停止留下的是「…（已停止）」。
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="eyebrow">模型抽象</div>
+    <h2>Prompt 格式綁在模型上，不是全域設定</h2>
+    <p>
+      餵錯轉折標記，模型不會報錯，它會安靜地退化成續寫機器。
+      <code>ModelSpec</code> 讓每個模型帶著自己的 renderer，<code>PromptFormat</code> 只有兩種實作，
+      但兩者的差異不只是標記字串不同——<strong>Gemma 根本沒有 system 角色</strong>。
+    </p>
+
+    <div class="split">
+      <div>
+        <h3>ChatML — Qwen 2.5、SmolLM</h3>
+        <pre>&lt;|im_start|&gt;system
+{人格設定}&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+最近如何？&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant</pre>
+      </div>
+      <div>
+        <h3>Gemma 3</h3>
+        <pre>&lt;start_of_turn&gt;user
+{人格設定}
+
+最近如何？&lt;end_of_turn&gt;
+&lt;start_of_turn&gt;model</pre>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>人格設定要併進第一則 user 訊息</h3>
+        <p>
+          Gemma 官方的 chat template 就是這樣做的：system 內容接上兩個換行，塞進第一輪 user 的最前面，
+          而且 assistant 這個角色名要改叫 <code>model</code>。發一個 system turn 給 Gemma，等於餵它訓練時從沒見過的文字。
+        </p>
+      </div>
+      <div class="note">
+        <h3>不加 <code>&lt;bos&gt;</code></h3>
+        <p><code>.task</code> 包裝本身會補上開頭 token，手動再加一個會讓每個位置都偏移一格。</p>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>模型</th><th>資產檔</th><th>格式</th><th>maxTokens</th><th>實測速度</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Gemma3 1B <em>（預設）</em></td><td class="path">gemma3-1b.task</td><td>Gemma</td><td class="num-cell">1280</td><td class="num-cell">16.3 tok/s</td></tr>
+          <tr><td>Qwen2.5 0.5B</td><td class="path">model.task</td><td>ChatML</td><td class="num-cell">1280</td><td class="num-cell">13.5 tok/s</td></tr>
+          <tr><td>SmolLM 135M</td><td class="path">smollm.task</td><td>ChatML</td><td class="num-cell">1280</td><td class="num-cell">42.3 tok/s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:14px;color:var(--muted)">
+      速度快不等於好用。SmolLM 每個 token 比 Gemma 快兩倍多，但因為它不會停，一句話的回答實測要跑 28.5 秒。
+    </p>
+  </section>
+
+  <section>
+    <div class="eyebrow">量化</div>
+    <h2>同一個模型，int4 說不了中文</h2>
+    <p>
+      Gemma3 1B 最早裝的是 <code>int4</code>，因為當時只有那個精度找得到免授權的來源。
+      它的英文完全正常，中文卻會在長回答中途崩解成標點和疊字：
+      <code>您、您、您、 感到、 好像、 好像、 、 這些、 這些、</code>。
+      同一個模型、同一個人格、相隔二十九秒的兩則回答，英文那則結構完整，中文那則垮掉。
+    </p>
+    <p>
+      換成 <code>q8</code> 之後，同樣的問題得到的是條列清楚的中文，而且模型自己停在 152 個 token，
+      既沒撞到長度上限也沒觸發迴圈偵測。<strong>順帶一提，q8 還比 int4 快兩倍以上</strong> ——
+      16.3 對 7.0 tok/s，因為 XNNPack 不必為每次運算把 int4 權重解壓回去。
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th></th><th>int4（529 MB）</th><th>q8（1005 MB）</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>英文</td><td>連貫</td><td>連貫</td></tr>
+          <tr><td>中文長回答</td><td>崩解成疊字</td><td>條列清楚，自行結束</td></tr>
+          <tr><td>速度</td><td class="num-cell">7.0 tok/s</td><td class="num-cell">16.3 tok/s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note caution">
+      <h3>量化不是等比例地損失品質</h3>
+      <p>
+        int4 省下的那 476 MB，代價不是「答得差一點」，而是<strong>整個語言失效</strong>。
+        小模型的多語系能力是最先被量化壓垮的部分，而這件事在英文測試裡完全看不出來。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">文字修復</div>
+    <h2>模型的輸出到畫面之間隔著兩層損壞</h2>
+    <p>
+      兩個 bug 都不在 App 的程式碼裡，但都得在 App 裡修。
+      <code>repairModelText()</code> 是唯一的收斂點，<strong>生成時和讀取舊紀錄時都會經過</strong>——
+      所以在修正上線前就已經存壞的對話，今天打開也是正確的。
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>階段</th><th>字串內容</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>MediaPipe 交出來</td><td class="path">1.ĠåĮĹ京\n2.Ġé¦Ļ港</td></tr>
+          <tr><td>decodeByteLevelTokens</td><td class="path">1. 北京\n2. 香港</td></tr>
+          <tr><td>unescape</td><td class="path">1. 北京 ⏎ 2. 香港</td></tr>
+          <tr><td>去硬換行標記・去停止 token → trim</td><td class="path">1. 北京 ⏎ 2. 香港</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>換行變成字面上的兩個字元</h3>
+        <p>
+          量測到的 fragment 字元碼是 <code>[92, 110]</code>，也就是反斜線加 n，不是 code 10。
+          所有樣本、中英文、清單和散文都一樣，一次都沒出現過真正的換行。
+          因為那不是空白字元，<code>trim()</code> 抓不到它。
+        </p>
+      </div>
+      <div class="note">
+        <h3>byte-level BPE 的替身字元沒被還原</h3>
+        <p>
+          Qwen 和 SmolLM 把 byte 而不是字元拿去 tokenize，每個 byte 有一個替身字元——空格是 <code>Ġ</code>，0x8C 是 <code>Į</code>。
+          MediaPipe 通常會轉回來，但有些 token 沒有，於是一個中文字以它 UTF-8 三個 byte 的替身形式抵達。
+          Gemma 用 SentencePiece，沒有 byte 字母表，不受影響。
+        </p>
+      </div>
+      <div class="note caution">
+        <h3>還原必須拒絕誤判</h3>
+        <p>
+          <code>café</code>、<code>Ärger</code>、<code>naïve</code> 全都是合法的替身字元序列。
+          所以只在兩個條件同時成立時才改寫：整段通過<strong>嚴格</strong> UTF-8 解碼（<code>CodingErrorAction.REPORT</code>，不是會塞 U+FFFD 的寬鬆模式），
+          而且結果含有三位元組字元。帶重音的拉丁字只會還原成自己，就被拒絕、原樣保留。
+        </p>
+      </div>
+      <div class="note">
+        <h3>第三樣要清掉的東西是前一步自己造成的</h3>
+        <p>
+          模型寫的是 Markdown，而 Markdown 裡「行尾一個反斜線」的意思是強制換行。
+          反跳脫那一步已經把它後面的 <code>\n</code> 變成真的換行了，於是那個反斜線就變成畫面上看得見的垃圾，
+          必須在同一條流水線上收掉。順序有意義：一定要在反跳脫之後。
+        </p>
+      </div>
+      <div class="note">
+        <h3>修好之後還有一步，那一步不是修復是呈現</h3>
+        <p>
+          模型會寫粗體、斜體和條列，直接顯示就是一堆星號。解析成區塊與強調是在畫的時候做的，
+          存下來的永遠是模型原本寫的文字。認不出來的標記一律原樣顯示——半寫完的 <code>**</code> 讓人看見，
+          比被默默吃掉好。<strong>只有模型的訊息會走這一步</strong>，使用者自己打的字原封不動。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">儲存</div>
+    <h2>每個模型在裝置上存在三份</h2>
+    <p>
+      MediaPipe 的 <code>setModelPath()</code> 只接受真實的檔案路徑，而 APK 裡的 asset 不是檔案，
+      是 zip 裡的一段位元組。所以第一次用到某個模型時，必須先把它複製出來。
+      這就是為什麼系統設定裡的「使用者資料」會顯示 1.65 GiB。
+    </p>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 860 300" role="img" aria-label="儲存流向：base.apk 內的未壓縮 asset 於首次使用時複製到 filesDir，MediaPipe 載入時再產生 XNNPack 權重快取，三者合計約 4.9 GiB。">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+          </defs>
+
+          <rect class="box" x="20" y="60" width="230" height="96" rx="4"/>
+          <text class="lbl-b" x="36" y="86">base.apk</text>
+          <text class="sub" x="36" y="106">assets/*.task</text>
+          <text class="sub" x="36" y="124">noCompress，未壓縮存放</text>
+          <text class="lbl" x="36" y="146">1.73 GiB</text>
+          <text class="sub" x="36" y="176">系統歸類：應用程式大小</text>
+
+          <rect class="box-warm" x="315" y="60" width="230" height="96" rx="4"/>
+          <text class="lbl-b" x="331" y="86">filesDir/*.task</text>
+          <text class="sub" x="331" y="106">解壓出來的完整副本</text>
+          <text class="sub" x="331" y="124">純粹的重複</text>
+          <text class="lbl" x="331" y="146">1.65 GiB</text>
+          <text class="sub" x="331" y="176">系統歸類：使用者資料</text>
+
+          <rect class="box" x="610" y="60" width="230" height="96" rx="4"/>
+          <text class="lbl-b" x="626" y="86">cache/*.xnnpack_cache</text>
+          <text class="sub" x="626" y="106">預先算好的權重佈局</text>
+          <text class="sub" x="626" y="124">空間不足時系統會清掉</text>
+          <text class="lbl" x="626" y="146">1.53 GiB</text>
+          <text class="sub" x="626" y="176">系統歸類：快取</text>
+
+          <line class="edge" x1="254" y1="108" x2="311" y2="108" marker-end="url(#a3)"/>
+          <text class="etxt" x="238" y="42">首次使用時複製</text>
+          <text class="etxt" x="238" y="60">（只有真正載入過的模型才會解壓）</text>
+
+          <line class="edge" x1="549" y1="108" x2="606" y2="108" marker-end="url(#a3)"/>
+          <text class="etxt" x="540" y="42">首次載入時建立</text>
+
+          <!-- total bracket -->
+          <path class="edge" d="M20 220 L20 234 L840 234 L840 220"/>
+          <line class="edge" x1="430" y1="234" x2="430" y2="252"/>
+          <text class="lbl" x="360" y="274">合計約 4.9 GiB</text>
+        </svg>
+      </div>
+      <figcaption>
+        中間那份是唯一真正浪費的。換掉一個模型時，舊模型的 XNNPack 快取還會變成孤兒留在原地——檔名裡編碼著舊檔案的大小，永遠不會再被讀取。要消除它只有一條路——不打包、改成首次使用時下載，讓模型只存在一份；
+        代價是失去「裝完即用」。目前選擇維持現狀。
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="eyebrow">啟動</div>
+    <h2>回到你離開的地方，而不是最新的那一段</h2>
+    <p>
+      這一段的存在是為了修一個實際踩到的 bug：<strong>換了模型、關掉 App、再回來，模型又變回去了。</strong>
+      原因是切換模型會開一段空白的新對話，而空白對話刻意不寫入磁碟——否則歷史清單會塞滿沒講過話的空殼。
+      於是那個切換只活在記憶體裡，程序一被回收就沒了。
+    </p>
+
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 860 340" role="img" aria-label="啟動流程：讀取記住的對話 id，若磁碟上找得到該對話就接續它並沿用它自己的模型；找不到則以記住的模型與人格開一段新對話。">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+            <marker id="a4c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path class="mk-accent" d="M0,1 L9,5 L0,9 z"/>
+            </marker>
+          </defs>
+
+          <rect class="box" x="20" y="126" width="190" height="76" rx="4"/>
+          <text class="lbl-b" x="36" y="152">App 啟動</text>
+          <text class="sub" x="36" y="172">讀 SessionPreferences</text>
+          <text class="sub" x="36" y="190">對話 id・模型・人格</text>
+
+          <path class="box" d="M330 110 L440 164 L330 218 L220 164 z"/>
+          <text class="lbl" x="330" y="160" text-anchor="middle">那段對話</text>
+          <text class="lbl" x="330" y="179" text-anchor="middle">還在嗎</text>
+
+          <line class="edge" x1="214" y1="164" x2="222" y2="164" marker-end="url(#a4)"/>
+
+          <!-- found -->
+          <path class="edge-core" d="M440 164 L500 164 L500 76 L556 76" marker-end="url(#a4c)"/>
+          <text class="etxt-core" x="452" y="60">在</text>
+          <rect class="box-core" x="560" y="46" width="280" height="62" rx="4"/>
+          <text class="lbl-b" x="576" y="70">接續那段對話</text>
+          <text class="sub" x="576" y="90">沿用它自己的模型，絕不換成別的</text>
+
+          <!-- missing -->
+          <path class="edge" d="M440 164 L500 164 L500 252 L556 252" marker-end="url(#a4)"/>
+          <text class="etxt" x="452" y="308">不在（空白對話，從沒存檔）</text>
+          <rect class="box" x="560" y="222" width="280" height="62" rx="4"/>
+          <text class="lbl-b" x="576" y="246">用記住的模型開新的</text>
+          <text class="sub" x="576" y="266">切換模型不會再因為關掉 App 而白費</text>
+        </svg>
+      </div>
+      <figcaption>
+        接續時沿用對話自己的模型是必要的，不是偷懶：若用今天的預設值去回覆一段舊對話，那段對話就同時含有兩個模型的輸出，
+        歷史清單上的模型標籤就成了謊話。
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="eyebrow">搜尋</div>
+    <h2>比對的是記憶體裡的對話，不是磁碟上的</h2>
+    <p>
+      這是最容易做錯的一步：對話存在磁碟上，所以「去磁碟撈出來比對」看起來理所當然。
+      但那樣會漏掉兩種東西——<strong>正開著、卻還沒存過檔的那段對話</strong>（只有開場白的對話刻意不寫入磁碟），
+      以及<strong>還在串流的那則回覆</strong>（它此刻只存在記憶體裡）。
+      所以搜尋看的是聊天頁那份狀態：開啟中的那段對話，加上歷史清單，同一個 id 出現兩次時留記憶體那份，因為磁碟永遠不會比較新。
+      資料層那邊也刻意<strong>沒有</strong>查詢方法——它只知道磁碟上有什麼，回答不了這個問題。
+    </p>
+    <p>
+      結果不是寫進狀態的，而是在狀態送出去的路上算出來的。刪掉一段對話、串流進一個字，都會改變什麼算命中，
+      而這兩件事都不會經過搜尋的程式碼——把結果做成衍生值，就沒有人有機會忘記重算。
+    </p>
+    <p>
+      一段對話最多列三則命中，其餘只報數字（「還有 N 則符合」），免得一段長對話把其他結果全擠出畫面。
+      每則命中只顯示一個 60 個字的視窗：命中前面留 20 個字當引子。命中本身有 60 個字（含）以上時裝不下引子，視窗就從命中的第一個字開始。被裁掉的兩端各補一個刪節號。
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>使用者打的查詢</th><th>訊息裡的內容</th><th>結果</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="path">hello</td><td class="path">Hello world</td><td>找得到——大小寫不分</td></tr>
+          <tr><td class="path">ABC</td><td class="path">ＡＢＣ</td><td>找得到——全形半形不分，兩個方向都是</td></tr>
+          <tr><td class="path">北京 天氣</td><td class="path">北京　天氣</td><td>找得到——所有空白都先收成一個空格</td></tr>
+          <tr><td class="path">北京　　　天氣</td><td class="path">北京 天氣</td><td>找得到——連續空白也收成一個</td></tr>
+          <tr><td class="path">北京 天氣</td><td class="path">北京很大，天氣很好</td><td>找不到——整串是一個子字串，不是兩個詞分開找</td></tr>
+          <tr><td class="path">台</td><td class="path">臺北</td><td>找不到——不做繁簡或異體字對應</td></tr>
+          <tr><td class="path">（只有空白）</td><td>任何</td><td>不算搜尋——停在未搜尋狀態，不是「找不到」。<br>這是比對層的契約：搜尋框本身打不出這種輸入（見下），但比對層仍然必須答對</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>輸入框裡留下什麼，跟拿去比對的是兩回事</h3>
+        <p>
+          開頭的空白一打就消失——它對比對毫無作用，留著只會讓空的欄位看起來有東西。
+          尾端的空白相反，打字時一定要留著：「北京 天氣」中間那一格，在剛打出來的那一瞬間
+          就是尾端空白，當場刪掉的話，帶空白的查詢就永遠打不出來。它要等到輸入框失去焦點
+          才移除。中間的空白完全不動。
+        </p>
+        <p>
+          而拿去比對的一律是整形過的文字，所以這兩次移除都不會改變找到什麼。
+          判斷「這是不是空白」用的也是上面那一份定義，不是語言內建的 trim——
+          內建那一份幾乎一樣，但會多吃掉 U+001C–U+001F，那幾個在任何看得見的文字裡都不是間隔。
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>攤平是唯一准許改變長度的一步</h3>
+        <p>
+          先把每一段空白收成一個空格，之後索引就是所有人共用的座標系：命中位置、裁切邊界、標示範圍都算在這份攤平後的字串上。
+          接下來的大小寫與全形折疊是嚴格的一個字元換一個字元——這也是為什麼不能用 <code>lowercase()</code>：
+          它會把 <code>İ</code> 變成兩個字元，之後每一個標示位置都會偏一格。
+        </p>
+      </div>
+      <div class="note">
+        <h3>空白是所有 Unicode 分隔符，但零寬字元不是</h3>
+        <p>
+          不換行空格、全形空格、行分隔符都算空白——只認 <code>\s</code> 那幾個字元的話，就得回答「為什麼 U+00A0 不算」，而那沒有答案。
+          零寬字元則刻意不算：它們沒有寬度，折成空格等於插入使用者沒打的空白，
+          而 U+200D 正是把 emoji 串在一起的那個字元，折掉它會讓 👨‍👩‍👧 裂成三個人。那已經是在改寫訊息了。
+        </p>
+      </div>
+      <div class="note">
+        <h3>什麼算命中，只有一個地方說了算</h3>
+        <p>
+          比對、裁切、標示位置都在一塊不依賴 UI 框架的純邏輯裡算完，畫面只負責把算好的區間上色。
+          如果哪天畫的那一邊需要自己去 <code>contains</code> 一下，就表示比對規則出現了第二份——而第二份是測試看不到的那份。
+        </p>
+      </div>
+      <div class="note">
+        <h3>開場白也搜得到</h3>
+        <p>
+          送進模型的上下文會丟掉開頭的開場白，但那是「模型該看什麼才答得好」的判斷；
+          搜尋回答的是「使用者在畫面上看過什麼」。兩個問題允許有不同答案，所以兩道過濾各自獨立，沒有共用。
+          代價是開場白是固定文案，搜它會在每段對話都命中一次——那是對的，不是雜訊。
+        </p>
+      </div>
+      <div class="note">
+        <h3>它是一個獨立畫面，不是抽屜裡的一段</h3>
+        <p>
+          邊打邊篩只有在打字的同時看得到結果才有用，而鍵盤佔掉半個螢幕，輸入框上方每一個固定的像素都是結果少掉的空間。
+          放在抽屜裡時輸入框落在螢幕中間，鍵盤一升起來就什麼都不剩了。
+          搜尋模式本身會跟著螢幕旋轉保留下來，轉個方向不會把正在打字的人踢出去。
+        </p>
+      </div>
+      <div class="note caution">
+        <h3>每一次狀態變動都會重算一次全部</h3>
+        <p>
+          包括回覆串流時每秒好幾次。換到的是「不可能忘記重算」，代價是重複的工。
+          目前對話量下這是划算的；如果哪天對話多到打字開始鈍，第一個該看的就是這裡。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">不變條件</div>
+    <h2>幾條刻意維持的規則</h2>
+    <ul>
+      <li><strong>對話的「最後更新時間」只跟著內容走。</strong>新增訊息、訊息文字改變、訊息被移除才算一次更新；切過去看一眼、切走都不算。否則「最近」會變成「最近被看過」，而歷史清單與搜尋結果的排序都靠這個時間。</li>
+      <li><strong>一段對話只有一個人格、一個模型。</strong>切換任何一個都會開新對話。不然歷史清單上那個標籤就是在說謊。</li>
+      <li><strong>對話之間的隔離是結構性的，不是靠記得清快取。</strong>一段對話一個 JSON 檔，它們根本不在同一個地方，刪除就是刪一個檔。</li>
+      <li><strong>串流片段只能顯示，不能保存。</strong>MediaPipe 逐片段解碼，多位元組字元被切在片段邊界就會壞掉。結尾的 Complete 是一次解碼的，那才是要存下來的版本。</li>
+      <li><strong>比較頁刻意不設長度上限，也不套人格。</strong>用中性 prompt 是為了量「誰答得好」而不是「誰比較會演」；不設上限是因為一個模型停不下來，正是比較時最該看到的事。</li>
+      <li><strong>舊紀錄不會被重新貼標。</strong>沒有 <code>model</code> 欄位的舊對話一律釘在 Qwen，而不是跟著今天的預設值跑。</li>
+      <li><strong>預設模型只管新對話。</strong>啟動時接續的那段對話沿用它自己的模型，會蓋過預設值——這是刻意的，理由見上面的啟動那節。</li>
+      <li><strong>只有真的打包進來的模型才會被提供。</strong>選單列的是 assets 裡實際存在的那幾個；記住的模型如果已經不在了，就退回現在裝得到的第一個，不會把 App 卡在一個載不起來的選擇上。</li>
+      <li><strong>每個 Session 都給新的隨機種子。</strong>MediaPipe 的預設值是 0，而這個 App 每則訊息開一個新 Session，兩者相加會讓同一個問題永遠得到一字不差的同一個答案——包括同一個壞答案。</li>
+      <li><strong>搜尋的範圍是使用者看得到的一切</strong>，包含還沒存檔的對話和正在串流的回覆。理由與細節見上一節（搜尋比對的是記憶體）。</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="eyebrow">模組地圖</div>
+    <h2>系統被切成哪幾塊</h2>
+    <p>
+      這張表以「這一塊負責回答什麼問題」為單位，<strong>不列行數</strong>。
+      行數是最先過期的欄位——連沒有人動過的檔案，數字也會因為別處的改動而飄掉，
+      而它從來沒有幫任何人找到過任何東西。檔案路徑留著，因為那是拿來導航用的；
+      真正的權威永遠是程式碼，這張表只是入口。
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>層</th><th>位置</th><th>負責回答的問題</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="layer-cell">畫面</td><td class="path">ui/ChatScreen.kt</td><td>聊天畫面、歷史抽屜、人格選單；也是三個畫面之間的切換點</td></tr>
+          <tr><td class="layer-cell">畫面</td><td class="path">ui/SearchScreen.kt</td><td>搜尋輸入與命中列表。自己不持有狀態，也不決定什麼算命中</td></tr>
+          <tr><td class="layer-cell">畫面</td><td class="path">ui/CompareScreen.kt</td><td>比較畫面與結果卡片</td></tr>
+          <tr><td class="layer-cell">畫面</td><td class="path">ui/RichText.kt</td><td>把解析好的 Markdown 區塊畫成文字</td></tr>
+          <tr><td class="layer-cell">狀態</td><td class="path">chat/ChatViewModel.kt</td><td>對話狀態、人格與模型切換、長度上限與迴圈中斷、使用者停止與停止當下的存檔、存檔、啟動還原、查詢字串</td></tr>
+          <tr><td class="layer-cell">狀態</td><td class="path">chat/Conversation.kt</td><td>訊息與對話的資料模型、引擎狀態、UI state；也是「所有對話」＝開啟中的那段加上歷史的定義處</td></tr>
+          <tr><td class="layer-cell">狀態</td><td class="path">compare/CompareViewModel.kt</td><td>依序執行、計時、tok/s</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">chat/TextRepair.kt</td><td>byte-level 還原、反跳脫、硬換行標記與停止 token 清理</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">chat/Degeneration.kt</td><td>這段回覆是不是卡在重複迴圈；重複的尾巴要收到哪裡</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ModelMarkdown.kt</td><td>模型寫的那一點 Markdown 該怎麼切成區塊與強調</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ConversationSearch.kt</td><td>什麼算命中、片段怎麼裁、標示要落在哪幾格</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ReplyEnding.kt</td><td>一則回覆有五種結束方式（正常、長度上限、重複迴圈、使用者停止、失敗），各自留下什麼文字，以及哪一種不留下回覆</td></tr>
+          <tr><td class="layer-cell">模型</td><td class="path">llm/LlmEngine.kt</td><td>單例引擎。模型載入與卸載、Session 生命週期、串流、token 預算裁切</td></tr>
+          <tr><td class="layer-cell">模型</td><td class="path">llm/ModelSpec.kt</td><td>有哪些模型可以跑、每個模型的 prompt 格式與 token 上限</td></tr>
+          <tr><td class="layer-cell">模型</td><td class="path">llm/ModelStore.kt</td><td>哪些模型真的打包進來了、把它解壓到 filesDir</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationRepository.kt</td><td>對話從哪裡來、到哪裡去。聊天層唯一的入口</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationStore.kt</td><td>一段對話一個 JSON 檔的讀寫與刪除</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/SessionPreferences.kt</td><td>使用者上次停在哪：對話 id、模型、人格</td></tr>
+          <tr><td class="layer-cell">人格</td><td class="path">persona/Persona.kt</td><td>五種人格的 systemPrompt 與開場白</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:14px;color:var(--muted)">
+      「純邏輯」那一層刻意不依賴 Android 或 Compose，所以文字修復、重複偵測、Markdown 解析、搜尋比對與回覆的結束方式都能在 JVM 上直接跑單元測試（<code>app/src/test</code>，五支測試各對應一塊）。
+      畫面只負責把算好的結果畫出來——搜尋的標示位置就是這樣送過去的。
+    </p>
+    <div class="note">
+      <h3><code>ConversationRepository</code> 什麼事都沒做，這是刻意的</h3>
+      <p>
+        它不快取、不合併、沒有 flow，每個方法都直接轉給下面那層，而且只有一個呼叫端。
+        它存在的唯一理由是分層：ViewModel 談的是「對話從哪來、到哪去」這個概念，而不是自己握著一個以檔案為底的 store。
+        別去替它想一個它其實沒有的好處。它也刻意沒有搜尋方法——搜尋要看畫面上有什麼，而它只知道磁碟上有什麼。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">已知限制</div>
+    <h2>目前修不掉的</h2>
+    <ul>
+      <li><strong>1B 級距的事實錯誤。</strong>Qwen 會說香港在台灣，Gemma 會把「南」寫成泰盧固文字母。那是模型選錯 token，不是解碼問題，程式層面無解。</li>
+      <li><strong>重複迴圈只能中斷，不能避免。</strong>Gemma 1B 在開放式問題上會陷進去；偵測到之後能做的只有取消生成、把重複的尾巴收成兩輪、在結尾標明中斷原因。那則回覆本質上是壞的，救不回來。</li>
+      <li><strong>SmolLM 不發停止 token。</strong>只能靠 800 字元上限攔住，攔下來的回覆本質上是被硬切的。</li>
+      <li><strong>MediaPipe 的 <code>LlmInference</code> 已標記為 deprecated。</strong>Google 正在往 LiteRT-LM 遷移，之後升版可能要改 API。</li>
+      <li><strong>模型佔用重複的 1.65 GiB。</strong>維持打包就無法避免。</li>
+    </ul>
+  </section>
+
+  <footer>
+    量測環境：Pixel 9 / Android API 36 / arm64-v8a / CPU backend
+  </footer>
+
+</div>
