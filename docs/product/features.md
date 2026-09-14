@@ -198,7 +198,7 @@ docs/specs/conversation-search/spec.md §5.1「入口在歷史抽屜的歷史區
 | 保存-02 | 一句話都沒說過的對話**不會被存起來**，也不會出現在歷史清單裡。 | 尚無 spec；只有「從搜尋結果點進這種對話時不得因此新增檔案」那一半被 `docs/specs/conversation-search/spec.md` §6.4「命中屬於一段只有開場白、從未存檔的對話」守著 |
 | 保存-03 | **按下停止的那一次會馬上存起來。** 停止之後直接把 App 關掉，那段對話和那則被中斷的回覆都還在。 | `docs/specs/stop-generation/spec.md` R5「停止當下就必須落盤」 |
 | 保存-04 | 回覆還在生成中的時候切換對話、換人格、換模型、開新對話 —— 被切走的那段會留下**已經寫出來的部分文字**（不是錯誤訊息），而且已經存好了。 | `docs/specs/stop-generation/spec.md` R6「落盤的必須是「被停止的那一段」」、R10「由切換隱含觸發的停止，行為與手動停止一致」；被切走的那段在歷史清單上找得到，見 `docs/specs/history-missing-after-switch/spec.md` H1「串流中切換之後，被切走的那段在歷史清單上」 |
-| 保存-05 | 從歷史清單刪掉一段對話，就是真的刪掉，App 裡和手機上都不會再留著。 | 尚無 spec |
+| 保存-05 | 從歷史清單刪掉一段對話，就是真的刪掉，App 裡和手機上都不會再留著。 | `docs/specs/conversation-search/spec.md` §9.4「使用者從歷史清單刪掉一段對話，就是真的刪掉」 |
 | 保存-06 | 「上次停在哪一段對話」會被記住；**你在搜尋框打的字不會被記住**。 | `docs/specs/conversation-search/spec.md` §5.7「查詢不跨行程保存」 |
 
 ---
