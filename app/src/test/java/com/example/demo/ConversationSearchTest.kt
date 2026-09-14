@@ -105,7 +105,9 @@ class ConversationSearchTest {
         val padded = searchConversations("  北京  ", threads)
         // Both returning nothing would also be "the same"; say what they must both find.
         assertEquals(1, bare.size)
-        assertEquals(bare.size, padded.size)
+        // Same result, not just the same number of groups: snippet, highlights and hit count
+        // must not drift when the padding is there.
+        assertEquals(bare, padded)
     }
 
     @Test
