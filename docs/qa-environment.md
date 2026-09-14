@@ -28,6 +28,8 @@
   **確認方式**：`echo ===` 回 `(eval):1: == not found`；`echo '==='` 正常印出。
 - **macOS 沒有 `timeout` 指令。** 需要限時就靠工具的逾時參數，或把腳本寫成自己會停。
   **確認方式**：`command -v timeout` 無輸出。
+- **把「指令加參數」存進變數再呼叫，zsh 不會切字**：`UI="python3 helper.py"; $UI texts` 會回 `no such file or directory: python3 helper.py`。**放在守衛裡時特別危險**：`$UI has X || echo ABORT` 會因為「指令不存在」而印出 ABORT，看起來像守衛正常運作。一律改用 shell 函式：`ui(){ python3 helper.py "$@"; }`。
+  **確認方式**：`C="echo hi"; $C` 回 `command not found: echo hi`；`c(){ echo hi; }; c` 印出 `hi`。
 - **Bash 工具會拒絕含控制字元的指令**（例如 heredoc 裡夾著 U+001C 之類的字元）。需要這種測資時，用檔案寫入工具把原始碼寫成檔案（字元以跳脫或數值表示，例如 `0x1C.toChar()`），不要貼進指令。
   **確認方式**：送出一個含字面控制字元的指令，工具在執行前就回 `command contains control characters`。
 
@@ -124,7 +126,7 @@ adb shell pm list packages -3 | grep -i <你認得的字>
 
 **重新安裝不會清掉 app 的私有資料**（確認方式見第 4 節：安裝前後比對雜湊）。
 
-*最後確認：2026-09-14（(a)：`lastUpdateTime` 晚於 `git log -- app/src/main` 的最後一筆，`git status` 乾淨；本輪沒有重新安裝）*
+*最後確認：2026-09-14（(c)：`./gradlew installDebug` 覆蓋安裝後記下 `lastUpdateTime`；安裝前後私有資料的檔案清單與雜湊逐一相同）*
 
 ---
 
@@ -271,6 +273,8 @@ for n in ET.fromstring(d).iter():
   - **數「某種列」時，判準要能分辨出只在那種列出現的特徵**（例如位置、寬度），不要只用文字內容——同一段字可能同時出現在標頭與內文列（本輪一次數成兩倍）。
   - **swipe 的起點與終點都不能落在手勢區**（第 5a 節）。
   - **確認方式**：同一份清單用兩種不同步距各蒐集一次，兩次的項數要一樣；不一樣就代表大的那個步距在漏。
+  - **把同一列的節點歸成一組時，用節點的下緣（bounds 的第四個數）分組，不要用上緣**：同一列裡字級不同的節點（emoji、名稱、小字）上緣會差幾個像素，按上緣分桶會把一列切成兩列；下緣通常完全相同。
+  - **確認方式**：dump 一列含 emoji 與小字的列，印出每個節點的上緣與下緣比對。
 - **覆蓋層開著時，覆蓋層外面的狀態文字可能不在 dump 裡**（被遮住的節點不一定列出）。拿「某段文字存在」判斷狀態時，先確認沒有覆蓋層蓋著它，並且配合 `mCurrentFocus`。
 
 *最後確認：2026-09-14（EditText 以 class 定位、兩種步距蒐集清單項數一致、y 位移對齊法在含重複文字的清單上項數與摘要數字一致）*
@@ -376,6 +380,10 @@ adb shell input tap <該候選格中心>         # 從截圖量出來
 - 需要在中文詞之間打**半形空白**時：組字狀態下按空白鍵是選字，沒有組字時按空白鍵才是插入空白。所以順序是「先把字選完，再送空白」（`input keyevent 62` 可用；注音版面下連送兩次得到兩個 0x20，逐碼位確認）。
 
 *最後確認：2026-09-14（單音節與雙音節鍵序各做數次，選字後逐碼位讀欄位）*
+- **注音版面下 `input text` 送 ASCII 標點會變成全形**（例如 `!` 進欄位是 U+FF01）。需要半形標點就先切英文版面。
+  確認方式：注音版面、焦點在任一輸入框時 `adb shell "input text '!'"`，逐碼位讀欄位看到 `0xff01`。
+- **候選列的位置在同一次操作裡通常不變，但每次仍要截圖確認**；選完字之後的下一次組字，候選順序可能不同。
+
 
 ### 6.4 幾個會讓你以為程式壞掉的鍵盤行為
 
@@ -488,6 +496,18 @@ adb shell pidof $PKG                         # 確認行程在不在
 ```sh
 adb shell dumpsys window | grep -m1 mCurrentFocus   # 現在焦點在哪個 app 的哪個視窗
 ```
+
+**飛航模式（需要「沒有網路」的情境時）**：先記原值，做完還原。
+
+```sh
+adb shell settings get global airplane_mode_on     # ← 先記下原值（0/1）
+adb shell cmd connectivity airplane-mode enable
+adb shell cmd connectivity airplane-mode disable   # 收尾：還原成原值
+```
+
+**確認方式**：enable 之後 `settings get global airplane_mode_on` 回 `1`，disable 之後回 `0`。
+
+*最後確認：2026-09-14*
 
 *最後確認：2026-09-14（am kill + am start 從 task 還原；force-stop + am start 冷啟動；遮罩節點關閉面板；BACK 依鍵盤狀態逐次按）*
 
