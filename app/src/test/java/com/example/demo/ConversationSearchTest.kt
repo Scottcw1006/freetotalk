@@ -253,6 +253,10 @@ class ConversationSearchTest {
     fun `isActive agrees with flattening about what counts as empty`() {
         assertFalse(SearchUiState("　").isActive)
         assertFalse(SearchUiState(" ").isActive)
+        // A no-break space looks exactly like a plain one on screen. The sweep below
+        // cannot stand in for this case: it asserts a conjunction, so an implementation
+        // that fails to flatten U+00A0 makes the conjunction false and the sweep passes.
+        assertFalse(SearchUiState("\u00A0").isActive)
         assertFalse(SearchUiState(" \t\n").isActive)
         assertTrue(SearchUiState("a").isActive)
         // The two answers can only agree because they share a function. Sweep the BMP
