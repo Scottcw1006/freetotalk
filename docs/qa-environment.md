@@ -32,6 +32,7 @@
   **確認方式**：`C="echo hi"; $C` 回 `command not found: echo hi`；`c(){ echo hi; }; c` 印出 `hi`。
 - **Bash 工具會拒絕含控制字元的指令**（例如 heredoc 裡夾著 U+001C 之類的字元）。需要這種測資時，用檔案寫入工具把原始碼寫成檔案（字元以跳脫或數值表示，例如 `0x1C.toChar()`），不要貼進指令。
   **確認方式**：送出一個含字面控制字元的指令，工具在執行前就回 `command contains control characters`。
+  （2026-09-15 補記：heredoc 裡寫 Kotlin 的 `'\u001C'` 跳脫序列也曾被同一條規則擋下；探針原始碼一律先用檔案寫入工具存成檔。）
 
 *最後確認：2026-09-14（前四條的確認方式逐一跑過；`=` 展開與 `--include=*.kt` 兩個本輪各實際踩到一次）*
 
@@ -77,7 +78,7 @@ ls -l app/build/test-results/testDebugUnitTest/*.xml
 # 每個 XML 的 root 屬性有 tests / failures / errors / skipped
 ```
 
-*最後確認：2026-09-14（`clean testDebugUnitTest` 在背景跑完，log 無 UP-TO-DATE/FROM-CACHE，逐檔讀過 XML 的屬性與時間）*
+*最後確認：2026-09-15（`clean testDebugUnitTest` 跑完，testDebugUnitTest 無 UP-TO-DATE/FROM-CACHE，逐檔讀過 XML 的屬性與時間）*
 
 ---
 
@@ -93,7 +94,7 @@ adb shell wm size       # 實際解析度
 adb shell wm density    # 實際 density；若有 Override density 會一起列出
 ```
 
-*最後確認：2026-09-14（`adb devices -l` 回報 model:Pixel_9；`wm size` 1080x2424、`wm density` 420 無 override）*
+*最後確認：2026-09-15（`adb devices -l` 回報 model:Pixel_9；`wm size` 1080x2424、`wm density` 420 無 override）*
 
 ---
 
@@ -126,7 +127,7 @@ adb shell pm list packages -3 | grep -i <你認得的字>
 
 **重新安裝不會清掉 app 的私有資料**（確認方式見第 4 節：安裝前後比對雜湊）。
 
-*最後確認：2026-09-14（(c)：`./gradlew installDebug` 覆蓋安裝後記下 `lastUpdateTime`；安裝前後私有資料的檔案清單與雜湊逐一相同）*
+*最後確認：2026-09-15（(c)：`./gradlew installDebug` 覆蓋安裝後記下 `lastUpdateTime`，晚於 HEAD 的提交時間）*
 
 ---
 
@@ -145,6 +146,11 @@ adb exec-out run-as $PKG ls -l shared_prefs
 
 **裝置端的 `ls` 是 toybox 版本**，不支援 GNU 的 `--time-style` 之類參數（會回 `Unknown option`）。要時間就用 `ls -l` 的預設輸出或 `stat`。
 **確認方式**：`adb exec-out run-as $PKG sh -c 'ls -l --time-style=+%H files'` 回 `Unknown option`。
+
+**`adb exec-out run-as $PKG ls <目錄>` 的輸出是多欄排版（一行好幾個檔名），不是一行一個。** 拿去 `sort`／`comm` 比清單會全部對不上、看起來像檔案不見。要清單一律用 `ls -1` 或 `find`。
+**確認方式**：對一個有多個檔的目錄各跑一次 `ls` 與 `ls -1`，數輸出行數（`wc -l`），前者遠少於檔案數。*最後確認：2026-09-15*
+
+**使用者已同意清空 App 資料的輪次**：不要用 `pm clear`（會連同幾百 MB 的資產檔一起刪）。先 `ls -la files shared_prefs` 看清楚，`force-stop` 之後只刪使用者資料所在的子目錄與偏好檔，再 `ls` 一次確認資產檔還在。*最後確認：2026-09-15*
 
 **先看一眼檔案大小再決定要不要整包拉下來。** app 的私有目錄裡可能躺著幾百 MB 到 GB 的資產檔，
 逐檔 `cat` 出來既慢又沒必要。**大檔改用裝置端就地算雜湊當基準**，只有小檔才拉回主機。
@@ -217,11 +223,13 @@ adb shell -n "rm -rf /data/local/tmp/qa"
 → 推論：**你自己推進去的測試檔，只要被 app 讀寫過一次就不能再拿位元組雜湊當基準**；使用者原本就有的檔案才可以。要做「前後位元組相同」的比對，先讓 app 自己寫過一次，拿那一份當基準。
 **確認方式**：推一個手寫 JSON，讓 app 讀寫它一次，再拉回來 `cmp`（不同）與 parse 後比較（相同）。
 
-*最後確認：2026-09-14（快照 16 檔 → 推測試檔 → 大量操作 → 刪檔 → 還原偏好與標記檔 → 16 檔雜湊與 baseline 完全相同、3 個大檔雜湊相同；手寫 JSON 被重新序列化後 `cmp` 不同、parse 後相同；還原後補啟動一次，標記檔再次改變並已照步驟重跑）*
+*最後確認：2026-09-14（快照 → 推測試檔 → 大量操作 → 刪檔 → 還原 → 雜湊與 baseline 完全相同；手寫 JSON 被重新序列化後 `cmp` 不同、parse 後相同）。2026-09-15：推測試檔、`comm` 比對（改用 `ls -1`）、手寫 JSON 重新序列化後 parse 相同，再次確認。*
 
 ---
 
 ## 5. 讀畫面：用 UI tree，不要用肉眼猜座標
+
+**現成工具：`docs/qa-tools/ui.py`**（dump／texts／has／tap／tapclass／field 逐碼位／focus）。**用之前先跑 `python3 docs/qa-tools/ui.py selftest`**，印出 `selftest OK` 才用。它不對 text 做 strip，`tap` 只接受完全相等且唯一的節點。*最後確認：2026-09-15*
 
 ```sh
 adb exec-out uiautomator dump /dev/tty
@@ -355,7 +363,7 @@ adb shell dumpsys window | grep -m1 mCurrentFocus       # 點完再確認自己�
 其中 `%s`（空白）在**焦點是按鈕**時等於「按下那顆按鈕」—— 也就是說一句看起來只是打字的指令，
 可能觸發一次導覽（本輪踩到一次：一句打字指令把一個面板打開了）。送字串之前先確認焦點真的在欄位裡（dump 裡該欄位的 `focused="true"`）。
 
-*最後確認：2026-09-14（`input text "中"` 在受測 app 的輸入框上拋出上述例外、欄位不變；單引號與 `echo a;b` 確認方式跑過）*
+*最後確認：2026-09-15（`adb shell cmd clipboard` 仍無實作；英文版面 `input text` 含 `%s` 前後空白逐碼位讀回相符）*
 
 ### 6.3 打中文（注音版面）
 
@@ -377,9 +385,11 @@ adb shell input tap <該候選格中心>         # 從截圖量出來
 - **一次送兩個音節的鍵序，候選列通常直接出現整個詞**，可以省一次截圖。
 - **聲調鍵與韻母鍵也都在鍵帽的英數標示上**（含 `,` `.` `/` `;` 這幾個非字母鍵）。需要它們時就直接送那個 ASCII 字元。
 - **不要用 `%s`（空白）當「第一聲」送**：組字中的空白鍵是「選字」，不是聲調也不是空白。第一聲的音節送完聲母韻母就會出候選。
-- 需要在中文詞之間打**半形空白**時：組字狀態下按空白鍵是選字，沒有組字時按空白鍵才是插入空白。所以順序是「先把字選完，再送空白」（`input keyevent 62` 可用；注音版面下連送兩次得到兩個 0x20，逐碼位確認）。
+- 需要在中文詞之間打**半形空白**時：組字狀態下按空白鍵是選字，沒有組字時按空白鍵才是插入空白。所以順序是「先把字選完，再送空白」（`input keyevent 62` 可用）。
+- **注音版面下快速連送兩次 `keyevent 62` 會被換成全形句號 U+3002（「。」）**，不是兩個空白（2026-09-15 實測，推翻先前「連送兩次得到兩個 0x20」的記載）。要兩個空白就在兩次之間隔約 2 秒（`adb shell sleep 2`），再逐碼位確認。
+  **確認方式**：注音版面、焦點在空的輸入框、選完一個字之後連送兩次 `input keyevent 62`，逐碼位讀欄位看到 `0x3002`；隔 2 秒各送一次則看到兩個 `0x20`。
 
-*最後確認：2026-09-14（單音節與雙音節鍵序各做數次，選字後逐碼位讀欄位）*
+*最後確認：2026-09-15（單音節與雙音節鍵序各做十餘次，選字後逐碼位讀欄位；候選列位置每次截圖重量）*
 - **注音版面下 `input text` 送 ASCII 標點會變成全形**（例如 `!` 進欄位是 U+FF01）。需要半形標點就先切英文版面。
   確認方式：注音版面、焦點在任一輸入框時 `adb shell "input text '!'"`，逐碼位讀欄位看到 `0xff01`。
 - **候選列的位置在同一次操作裡通常不變，但每次仍要截圖確認**；選完字之後的下一次組字，候選順序可能不同。
@@ -466,7 +476,7 @@ adb shell settings put system user_rotation 1          # 1 = 橫向, 0 = 直向
 **這幾項都會改到使用者的系統設定，收尾一定要還原**，並把「原值是什麼」寫進當輪報告。
 **確認方式**：還原後再各 `get` 一次，與記下的原值相同。
 
-*最後確認：2026-09-14（density 420 無 override；accelerometer_rotation=1、user_rotation=0；套用 606 與橫向後都還原成功並讀回確認；改 density 後視窗編號改變）*
+*最後確認：2026-09-15（density 420 無 override；accelerometer_rotation=1、user_rotation=0；套用 606 與橫向後都還原成功並讀回確認；改 density 後視窗編號改變）*
 
 ---
 
@@ -591,7 +601,7 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
 "$JAVA_HOME/bin/java" -cp "$KC:$STD:$CO" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -version
 ```
 
-*最後確認：2026-09-14（照這個流程編譯並執行一支探針與一個測試類別、做兩次突變並以 cmp 確認複本還原，專案原始碼未被改動）*
+*最後確認：2026-09-15（照這個流程編譯並執行一支探針與一個測試類別、兩個突變複本，以 cmp 確認複本與專案原始碼相同）*
 
 ---
 
