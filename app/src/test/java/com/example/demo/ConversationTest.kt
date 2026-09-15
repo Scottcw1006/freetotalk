@@ -74,11 +74,21 @@ class ConversationTest {
         assertEquals("第一行 第二行", conversation.title)
     }
 
+    /**
+     * A cut that happens to fit on one line gets no ellipsis from the row's
+     * TextOverflow.Ellipsis, so the cut itself has to say "there is more".
+     */
     @Test
-    fun `a long first message is cut to 26 characters`() {
-        val conversation = thread(said("字".repeat(40)))
+    fun `a long first message is cut to 26 characters and ends with an ellipsis`() {
+        val conversation = thread(said("this is a very long first sentence that keeps going"))
 
-        assertEquals("字".repeat(26), conversation.title)
+        assertEquals("this is a very long first …", conversation.title)
+        assertEquals("字".repeat(26) + "…", thread(said("字".repeat(40))).title)
+    }
+
+    @Test
+    fun `a first message of exactly 26 characters is not marked as cut`() {
+        assertEquals("字".repeat(26), thread(said("字".repeat(26))).title)
     }
 
     // ---- preview -------------------------------------------------------------
@@ -96,8 +106,13 @@ class ConversationTest {
     }
 
     @Test
-    fun `a long last message is cut to 40 characters`() {
-        assertEquals("字".repeat(40), thread(said("字".repeat(60))).preview)
+    fun `a long last message is cut to 40 characters and ends with an ellipsis`() {
+        assertEquals("字".repeat(40) + "…", thread(said("字".repeat(60))).preview)
+    }
+
+    @Test
+    fun `a last message of exactly 40 characters is not marked as cut`() {
+        assertEquals("字".repeat(40), thread(said("字".repeat(40))).preview)
     }
 
     @Test

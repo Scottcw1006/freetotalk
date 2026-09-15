@@ -30,11 +30,18 @@ data class Conversation(
     /** Threads are named after whatever the user opened with. */
     val title: String
         get() = messages.firstOrNull { it.author == Author.You }
-            ?.text?.replace('\n', ' ')?.take(26)
+            ?.text?.replace('\n', ' ')?.cutTo(26)
             ?: "還沒說話"
 
     val preview: String
-        get() = messages.lastOrNull()?.text?.replace('\n', ' ')?.take(40).orEmpty()
+        get() = messages.lastOrNull()?.text?.replace('\n', ' ')?.cutTo(40).orEmpty()
+
+    /**
+     * A cut short enough to fit on one line gets no ellipsis from the drawer row,
+     * so the cut itself carries the "…" whenever something was dropped.
+     */
+    private fun String.cutTo(limit: Int): String =
+        if (length > limit) take(limit) + "…" else this
 
     /** An untouched thread is not worth keeping in the history list. */
     val isBlank: Boolean
