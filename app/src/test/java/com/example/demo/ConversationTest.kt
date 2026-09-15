@@ -185,6 +185,64 @@ class ConversationTest {
         assertEquals("還沒說話", thread(replied("開場白")).title)
     }
 
+    // ---- a character is what the reader sees, not a code point ----------------
+
+    // Spelled out code unit by code unit so the expectations below never lean on the
+    // same character segmentation the code under test uses.
+    private val family = "👨‍👩‍👧" // 👨‍👩‍👧, 8 units
+    private val flag = "🇹🇼" // 🇹🇼, 4 units
+    private val thumbs = "👍🏽" // 👍🏽, 4 units
+    private val accent = "́"
+
+    /**
+     * UAX #29 glues each of these together by a different rule. Every shape puts the cut
+     * after the character's first code point — a spot where no surrogate pair is split —
+     * so guarding pairs alone lets 👨, 🇹 or a toneless 👍 through.
+     */
+    @Test
+    fun `a title cut inside a combined emoji keeps all of it or none of it`() {
+        val lead = "字".repeat(24)
+        for (character in listOf(family, flag, thumbs)) {
+            val title = thread(said(lead + character + "後面還有字")).title
+            assertTrue("\"$title\"", title == "$lead…" || title == "$lead$character…")
+        }
+    }
+
+    @Test
+    fun `a preview cut inside a combined emoji keeps all of it or none of it`() {
+        val lead = "字".repeat(38)
+        for (character in listOf(family, flag, thumbs)) {
+            val preview = thread(said(lead + character + "後面還有字")).preview
+            assertTrue("\"$preview\"", preview == "$lead…" || preview == "$lead$character…")
+        }
+    }
+
+    /** Stepping back out of one character must stop at its start, not swallow the one before. */
+    @Test
+    fun `stepping out of a combined emoji keeps the character before it`() {
+        val lead = "字".repeat(21)
+        val title = thread(said(lead + thumbs + family + "後面還有字")).title
+        assertTrue("\"$title\"", title == "$lead$thumbs…" || title == "$lead$thumbs$family…")
+    }
+
+    @Test
+    fun `a combined emoji that exactly fills the limit is kept whole with no ellipsis`() {
+        assertEquals("字".repeat(18) + family, thread(said("字".repeat(18) + family)).title)
+        assertEquals("字".repeat(32) + family, thread(said("字".repeat(32) + family)).preview)
+    }
+
+    /** Always stepping back would cut this down to nothing but the "…". */
+    @Test
+    fun `a single character longer than the limit is not cut down to a bare ellipsis`() {
+        val longForTitle = "e" + accent.repeat(40)
+        val title = thread(said(longForTitle + "尾巴")).title
+        assertTrue("\"$title\"", title.startsWith(longForTitle))
+
+        val longForPreview = "e" + accent.repeat(60)
+        val preview = thread(said(longForPreview + "尾巴")).preview
+        assertTrue("\"$preview\"", preview.startsWith(longForPreview))
+    }
+
     // ---- isBlank -------------------------------------------------------------
 
     /**

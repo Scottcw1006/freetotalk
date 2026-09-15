@@ -463,6 +463,94 @@ class ConversationSearchTest {
         }
     }
 
+    // ---- a character is what the reader sees (§4.4) ---------------------------
+
+    // Spelled out code unit by code unit so the expectations below never lean on the
+    // same character segmentation the code under test uses.
+    private val family = "👨‍👩‍👧" // 👨‍👩‍👧, 8 units
+    private val flag = "🇹🇼" // 🇹🇼
+    private val japan = "🇯🇵" // 🇯🇵
+    private val thumbs = "👍🏽" // 👍🏽
+    private val accent = "́"
+
+    private fun kiwiHit(text: String): MessageHit =
+        searchConversations("kiwi", listOf(thread(replied(text)))).single().hits.single()
+
+    private fun MessageHit.assertKiwiIsMarked() {
+        assertTrue("the snippet lost the query: \"$snippet\"", snippet.contains("kiwi"))
+        val highlight = highlights.single()
+        assertEquals("kiwi", snippet.substring(highlight.start, highlight.endExclusive))
+    }
+
+    /**
+     * The lead-in wants to start at index 7: family's first ZWJ, the start of 🇼, the skin
+     * tone. None of those splits a surrogate pair, so guarding pairs alone opens the
+     * snippet on a ZWJ, a lone 🇼 or a bare colour swatch.
+     */
+    @Test
+    fun `a window starting inside a combined emoji starts at a whole character`() {
+        for ((character, run) in listOf(family to 14, flag to 18, thumbs to 18)) {
+            val lead = "乙".repeat(run)
+            val hit = kiwiHit("甲".repeat(5) + character + lead + "kiwi" + "丙".repeat(50))
+            assertTrue(
+                "\"${hit.snippet}\"",
+                hit.snippet.startsWith("…$character${lead}kiwi") || hit.snippet.startsWith("…${lead}kiwi"),
+            )
+            hit.assertKiwiIsMarked()
+        }
+    }
+
+    /** Lead-in from 10, so the window wants to end at 70 — inside the character that starts at 68. */
+    @Test
+    fun `a window ending inside a combined emoji ends at a whole character`() {
+        for (character in listOf(family, flag, thumbs)) {
+            val hit = kiwiHit("甲".repeat(30) + "kiwi" + "乙".repeat(34) + character + "丙".repeat(30))
+            assertTrue(
+                "\"${hit.snippet}\"",
+                hit.snippet.endsWith("乙$character…") || hit.snippet.endsWith("乙乙…"),
+            )
+            hit.assertKiwiIsMarked()
+        }
+    }
+
+    /**
+     * Cuts that already fall between two whole characters must stay put: a run of
+     * emoji is not one character, and two flags side by side pair up as 🇹🇼 🇯🇵, not 🇼🇯.
+     */
+    @Test
+    fun `a window already between two characters is not moved`() {
+        val atStart = kiwiHit("甲".repeat(3) + thumbs + thumbs + "乙".repeat(16) + "kiwi" + "丙".repeat(50))
+        assertTrue("\"${atStart.snippet}\"", atStart.snippet.startsWith("…$thumbs" + "乙".repeat(16) + "kiwi"))
+        atStart.assertKiwiIsMarked()
+
+        val atEnd = kiwiHit("甲".repeat(30) + "kiwi" + "乙".repeat(32) + flag + japan + "丙".repeat(30))
+        assertTrue("\"${atEnd.snippet}\"", atEnd.snippet.endsWith("乙$flag…"))
+        atEnd.assertKiwiIsMarked()
+    }
+
+    /** The same stretch of code decides the window, so the BMP boundaries of §4.2 and §4.3 are re-pinned here. */
+    @Test
+    fun `whole-character cropping leaves the plain window rules as they were`() {
+        assertEquals("…" + "甲".repeat(20) + "乙".repeat(40) + "…", hitForRunOfLength(59).snippet)
+        assertEquals("…" + "乙".repeat(60) + "…", hitForRunOfLength(60).snippet)
+        assertEquals("…" + "乙".repeat(60) + "…", hitForRunOfLength(61).snippet)
+        val short = searchConversations("北京", listOf(thread(said("我要去北京")))).single().hits.single()
+        assertEquals("我要去北京", short.snippet)
+    }
+
+    /**
+     * One character — an "e" under eighty accents — is longer than the whole window, and
+     * the lead-in wants to start in the middle of it. Stepping both ends back empties
+     * the snippet or leaves it without the hit.
+     */
+    @Test
+    fun `a character longer than the window still leaves the hit on screen`() {
+        val long = "e" + accent.repeat(80)
+        val hit = kiwiHit("甲".repeat(100) + long + "kiwi" + "丙".repeat(30))
+        assertTrue("\"${hit.snippet}\"", hit.snippet.contains("k"))
+        assertTrue("\"${hit.snippet}\"", hit.snippet.contains(long) || !hit.snippet.contains(accent))
+    }
+
     // ---- grouping and ordering -----------------------------------------------
 
     @Test

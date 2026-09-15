@@ -110,8 +110,14 @@ private fun ChatMessage.hitOrNull(needle: String): MessageHit? {
     } else {
         (first.first - SNIPPET_LEAD).coerceAtLeast(0)
     }
-    val start = flat.avoidSplittingPairAt(rawStart)
-    val end = flat.avoidSplittingPairBefore((start + SNIPPET_WINDOW).coerceAtMost(flat.length))
+    // §4.4: neither end may cut a character in two. The start moves forward out of a
+    // character it lands in, unless that would carry it past the hit; the end moves back,
+    // unless that would leave nothing of the hit on screen.
+    val start = flat.characterBoundaryAtOrAfter(rawStart)
+        .takeIf { it <= first.first } ?: flat.characterBoundaryAtOrBefore(rawStart)
+    val rawEnd = (start + SNIPPET_WINDOW).coerceAtMost(flat.length)
+    val end = flat.characterBoundaryAtOrBefore(rawEnd)
+        .takeIf { it > first.first } ?: flat.characterBoundaryAtOrAfter(rawEnd)
 
     val prefix = if (start > 0) ELLIPSIS else ""
     val suffix = if (end < flat.length) ELLIPSIS else ""
@@ -240,9 +246,23 @@ internal fun String.normalizeForSearch(): String = buildString(length) {
     }
 }
 
-/** Half of a surrogate pair on its own is not a character anyone can read. */
-private fun String.avoidSplittingPairAt(index: Int): Int =
-    if (index > 0 && index < length && this[index].isLowSurrogate()) index - 1 else index
+/**
+ * A character is what the reader sees as one — an extended grapheme cluster, so 👍🏽,
+ * 👨‍👩‍👧, 🇹🇼 and a letter under its accents each count once. Part of one on its own is
+ * not something anyone can read. The drawer's title and preview cut with these too: the
+ * two places must agree on what cutting a character means.
+ *
+ * java.text rather than android.icu keeps this plain JVM logic; on Android the same class
+ * is backed by ICU.
+ */
+internal fun String.characterBoundaryAtOrBefore(index: Int): Int {
+    if (index <= 0 || index >= length) return index.coerceIn(0, length)
+    val breaks = java.text.BreakIterator.getCharacterInstance().also { it.setText(this) }
+    return if (breaks.isBoundary(index)) index else breaks.preceding(index)
+}
 
-private fun String.avoidSplittingPairBefore(index: Int): Int =
-    if (index in 1..lastIndex && this[index - 1].isHighSurrogate()) index - 1 else index
+internal fun String.characterBoundaryAtOrAfter(index: Int): Int {
+    if (index <= 0 || index >= length) return index.coerceIn(0, length)
+    val breaks = java.text.BreakIterator.getCharacterInstance().also { it.setText(this) }
+    return if (breaks.isBoundary(index)) index else breaks.following(index)
+}

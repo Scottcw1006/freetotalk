@@ -42,10 +42,12 @@ data class Conversation(
      */
     private fun String.cutTo(limit: Int): String {
         if (length <= limit) return this
-        // A cut between the two halves of a surrogate pair would leave half an emoji in
-        // front of the "…": a broken glyph, and a string uiautomator refuses to dump.
-        val end = if (this[limit - 1].isHighSurrogate() && this[limit].isLowSurrogate()) limit - 1 else limit
-        return take(end) + "…"
+        // A cut inside a character — half a surrogate pair, or the first code point of 👍🏽
+        // — leaves something unreadable in front of the "…" (and a half pair is a string
+        // uiautomator refuses to dump). Step back to where the character starts; a single
+        // character longer than the whole limit is kept whole instead of leaving a bare "…".
+        val end = characterBoundaryAtOrBefore(limit).takeIf { it > 0 } ?: characterBoundaryAtOrAfter(limit)
+        return if (end >= length) this else take(end) + "…"
     }
 
     /** An untouched thread is not worth keeping in the history list. */
