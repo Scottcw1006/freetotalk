@@ -31,6 +31,8 @@
   **確認方式**：`echo ===` 回 `(eval):1: == not found`；`echo '==='` 正常印出。
 - **macOS 沒有 `timeout` 指令。** 需要限時就靠工具的逾時參數，或把腳本寫成自己會停。
   **確認方式**：`command -v timeout` 無輸出。
+- **`set -- $VAR` 在 zsh 裡同樣不切字**：`R="1 2 3"; set -- $R; echo $1` 印出整串 `1 2 3`，接著拿 `$1` 做數字比較會報 `integer expression expected`。要解析多欄輸出，把判斷整段寫進 python，不要在 shell 裡拆。
+  **確認方式**：上面那行在 zsh 印出 `1 2 3`。*最後確認：2026-09-16*
 - **把「指令加參數」存進變數再呼叫，zsh 不會切字**：`UI="python3 helper.py"; $UI texts` 會回 `no such file or directory: python3 helper.py`。**放在守衛裡時特別危險**：`$UI has X || echo ABORT` 會因為「指令不存在」而印出 ABORT，看起來像守衛正常運作。一律改用 shell 函式：`ui(){ python3 helper.py "$@"; }`。
   **確認方式**：`C="echo hi"; $C` 回 `command not found: echo hi`；`c(){ echo hi; }; c` 印出 `hi`。
 - **Bash 工具每一次呼叫都是新的 shell，`export PATH` 不會留到下一次。** 忘了就是一整排 `command not found: adb`，而後面的指令照樣跑完。做法：把 PATH、套件名、helper 函式寫進 scratchpad 的一個 env 檔，每次呼叫開頭 `source` 它。
@@ -87,19 +89,20 @@ ls -l app/build/test-results/testDebugUnitTest/*.xml
 
 ---
 
-## 2. 實機
+## 2. 驗收裝置（Android 模擬器）
 
-Pixel 9，USB 連線。
+2026-09-16 起驗收裝置是 Android 模擬器（AVD `Pixel_9`），不再用實機。主機上可能同時接著別的裝置，**每條 adb 指令都指定序號**：在 env 檔裡 `export ANDROID_SERIAL=<序號>`（Gradle 的 `installDebug` 也吃這個變數）。
 
 **確認方式**：
 
 ```sh
-adb devices -l          # 要看到一台 device（不是 unauthorized / offline）
+adb devices -l          # 要看到 emulator-XXXX device（不是 unauthorized / offline），序號當場抄
+adb shell getprop ro.build.version.release   # Android 版本，抄進當輪報告
 adb shell wm size       # 實際解析度
 adb shell wm density    # 實際 density；若有 Override density 會一起列出
 ```
 
-*最後確認：2026-09-15（`adb devices -l` 回報 model:Pixel_9；`wm size` 1080x2424、`wm density` 420 無 override）*
+*最後確認：2026-09-16（`adb devices -l` 回報 emulator-5554、model:sdk_gphone16k_arm64；`wm size` 1080x2424、`wm density` 420 無 override）*
 
 ---
 
@@ -129,6 +132,12 @@ adb shell pm list packages -3 | grep -i <你認得的字>
 ```
 
 判準：安裝時間必須**晚於**最後一次產品程式碼變更時間，且工作區乾淨。把實際數字抄進當輪報告。
+
+**覆蓋安裝失敗 `INSTALL_FAILED_INSUFFICIENT_STORAGE`（APK 很大時）**：`installDebug` 會先把 APK 整份複製到 `/data/local/tmp` 再安裝，失敗時那份複本會留在裝置上佔空間。做法：
+1. `adb shell df -h /data` 看剩餘空間；`adb shell ls -la /data/local/tmp` 找出**這一輪失敗那次**留下的 APK（時間戳對得上才刪）。
+2. 刪掉那份複本後改用 `adb install -r -t <apk>`（串流安裝，不經過 `/data/local/tmp`）。
+3. **絕對不要解除安裝來騰空間。**
+**確認方式**：輸出含 `Performing Streamed Install` 與 `Success`，且 `dumpsys package <套件名> | grep lastUpdateTime` 變成剛才；另可比對 `adb shell stat -c %s $(adb shell pm path <套件名> | sed 's/package://')` 與本機 APK 大小相同。*最後確認：2026-09-16*
 
 **重新安裝不會清掉 app 的私有資料**（確認方式見第 4 節：安裝前後比對雜湊）。
 
@@ -253,6 +262,9 @@ adb exec-out uiautomator dump /dev/tty
 
 建議做法：**先 dump、從 text 找到目標節點的 bounds、再算中心點去點**，不要把座標寫死在腳本或文件裡 —— 座標會過期，而**錯的座標比沒有座標更糟：它會讓人點到別的東西，然後以為自己驗過了**。
 
+**同一段字同時出現在畫面固定區與清單列裡**（例如側邊面板上方的選項名稱也出現在清單列裡）時，`ui.py tap` 會因為不唯一而中止；改用「文字相等 + y 範圍」挑節點再點。
+**確認方式**：在那種畫面上 `ui.py tap <那段字>` 回報 `ABORT: N nodes match`（N>1）。*最後確認：2026-09-16*
+
 **「用文字找節點」會找到別的節點。** 同一段字常常同時出現在輸入框與清單列裡；取「第一個含這段字的節點」時，拿到的可能是清單列，點下去就觸發了那一列的動作。
 - 點輸入框一律用 `class="android.widget.EditText"` 找（並確認恰好一個），不要用它裡面的文字找。
 - 其他目標用**完全相等**比對，並加上位置條件（例如「在某個區塊的 y 範圍內」）；找到不是恰好一個就中止。
@@ -315,7 +327,9 @@ adb shell dumpsys window | grep -E "type=(mandatorySystemGestures|systemGestures
 
 ## 6. 輸入法（這台裝置最花時間的一塊）
 
-裝置上唯一的文字輸入法是 Gboard，且**同時掛著注音與英文兩種版面**。
+裝置上唯一的文字輸入法是 Gboard，且**同時掛著注音與英文兩種版面**（模擬器上同樣如此）。
+**確認方式**：`adb shell dumpsys input_method | grep -E "mSubtypeName=.*mLayoutName"` 列出啟用中的版面。*最後確認：2026-09-16*
+**切換版面的另一條路**：長按空白鍵會跳出「Change keyboard」選單（兩個版面各一列），點要的那一列。位置用截圖量，不要寫死。
 
 ```sh
 adb shell ime list -s                                   # 目前可用的輸入法
@@ -351,7 +365,7 @@ adb shell "input text 'abc;4'"
 
 **確認方式**（不經過輸入框、不會把字打到任何畫面上）：`adb shell "echo a;b"` 印出 `a` 加上 `b: inaccessible or not found`；`adb shell "echo 'a;b'"` 印出 `a;b`。
 
-`input text` **只送得出 ASCII**。送任何非 ASCII 字元（全形空白、CJK 皆然）會直接在 shell 端拋例外：
+`input text` **只送得出 ASCII**（模擬器上同樣如此，2026-09-16 再確認）。送任何非 ASCII 字元（全形空白、CJK 皆然）會直接在 shell 端拋例外：
 `java.lang.NullPointerException: Attempt to get length of null array`（`InputShellCommand.sendText`），**欄位完全不會變**。
 確認方式：焦點在受測 app 的某個輸入框時 `adb shell input text "<一個中文字>"`，預期看到上面那個例外，dump 欄位不變。**不要在焦點不在受測 app 時做這個確認**。
 
@@ -392,6 +406,7 @@ adb shell input tap <該候選格中心>         # 從截圖量出來
 要點：
 - 候選列與組字列**不在 uiautomator dump 裡**，只能截圖判讀。
 - 截圖給你看的尺寸可能被縮小過；**從截圖量座標時要換算回裝置實際像素**（例如縮圖寬 891、實際寬 1080，就乘 1.21）。
+- **組字中空白鍵上印的是「ˉ」（一聲）**：組字時按空白鍵是加一聲，會把候選收窄；沒有組字時按空白鍵（或 `input keyevent 62`）才是插入 U+0020。
 - 候選列是等寬的若干格，**每次都從截圖重新量**，不要沿用上一次的座標 —— 選過之後候選的順序可能改變。
 - **省截圖的做法（有守衛才可以用）**：同一組鍵序重打、而前一次截圖證明詞在第一格時，可以直接點第一格，**點完立刻逐碼位讀欄位**，不是預期的字就中止。沒有這個讀回守衛就不要省。
   **確認方式**：點完第一格後 `ui.py field` 印出的碼位與預期逐一相同。*最後確認：2026-09-15*
@@ -425,6 +440,9 @@ adb shell input tap <該候選格中心>         # 從截圖量出來
 ```sh
 adb shell cmd clipboard        # 確認方式：預期看到 No shell command implementation.
 ```
+
+**2026-09-16 在模擬器上確認：這條 UI 路走得通。** 在一個會原樣保留內容的輸入欄位打好字 → 長按文字 → 截圖量「Select all」→ 點 → 截圖量「Copy」→ 點；到目標欄位長按 → 截圖量「Paste」→ 點。剪貼簿裡到底是什麼，用「貼進一個會原樣保留內容的欄位，再逐碼位讀回」確認，不要看 Gboard 剪貼簿提示條上的字（它會修剪空白）。
+**確認方式**：照上面做一次，逐碼位讀回的內容與複製來源相同。*最後確認：2026-09-16*
 
 要把任意字串放進剪貼簿，只能走 UI：找一個**願意原樣保留該字串的輸入欄位**，在那裡打好，長按 → 全部選取 → 複製，再到目標欄位長按 → 貼上。
 
