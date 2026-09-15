@@ -120,6 +120,71 @@ class ConversationTest {
         assertEquals("", thread().preview)
     }
 
+    // ---- a cut never splits a character ---------------------------------------
+
+    /** A high surrogate with no low one after it, or a low one with no high one before it. */
+    private fun String.hasLoneSurrogate(): Boolean = indices.any { i ->
+        val c = this[i]
+        (c.isHighSurrogate() && (i + 1 >= length || !this[i + 1].isLowSurrogate())) ||
+            (c.isLowSurrogate() && (i == 0 || !this[i - 1].isHighSurrogate()))
+    }
+
+    /**
+     * The cut lands between the two halves of 🌧. Taking a plain prefix of code units
+     * leaves half an emoji in front of the "…" — a broken glyph in the drawer, and a
+     * string uiautomator refuses to dump.
+     */
+    @Test
+    fun `a title cut in the middle of an emoji keeps no half of it`() {
+        val first = "字".repeat(25) + "🌧" + "後面還有很多字"
+        val title = thread(said(first)).title
+
+        assertFalse("lone surrogate in \"$title\"", title.hasLoneSurrogate())
+        assertTrue(title.endsWith("…"))
+        val kept = title.removeSuffix("…")
+        assertTrue(first.startsWith(kept))
+        assertTrue(kept.startsWith("字".repeat(25)))
+    }
+
+    @Test
+    fun `a preview cut in the middle of an emoji keeps no half of it`() {
+        val last = "字".repeat(39) + "🌧" + "後面還有很多字"
+        val preview = thread(said(last)).preview
+
+        assertFalse("lone surrogate in \"$preview\"", preview.hasLoneSurrogate())
+        assertTrue(preview.endsWith("…"))
+        val kept = preview.removeSuffix("…")
+        assertTrue(last.startsWith(kept))
+        assertTrue(kept.startsWith("字".repeat(39)))
+    }
+
+    /** Stepping back a unit whenever the last character is an emoji would cut a line that fits. */
+    @Test
+    fun `an emoji that exactly fills the limit is kept whole with no ellipsis`() {
+        val title = "字".repeat(24) + "🌧"
+        val preview = "字".repeat(38) + "🌧"
+
+        assertEquals(title, thread(said(title)).title)
+        assertEquals(preview, thread(said(preview)).preview)
+    }
+
+    /** What the emoji fix must leave alone in the same stretch of code. */
+    @Test
+    fun `guarding emoji leaves the rest of the title and preview rules as they were`() {
+        assertTrue(thread(said("a".repeat(60))).title.endsWith("…"))
+        assertTrue(thread(said("a".repeat(60))).preview.endsWith("…"))
+        assertEquals("a".repeat(26), thread(said("a".repeat(26))).title)
+        assertEquals("a".repeat(40), thread(said("a".repeat(40))).preview)
+
+        assertEquals("上 下", thread(said("上\n下")).title)
+        assertEquals("上 下", thread(said("上\n下")).preview)
+        // The drawer does not borrow search's whitespace folding.
+        assertEquals("北京　天氣", thread(said("北京　天氣")).title)
+        assertEquals("北京　天氣", thread(said("北京　天氣")).preview)
+
+        assertEquals("還沒說話", thread(replied("開場白")).title)
+    }
+
     // ---- isBlank -------------------------------------------------------------
 
     /**

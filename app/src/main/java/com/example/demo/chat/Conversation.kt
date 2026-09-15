@@ -40,8 +40,13 @@ data class Conversation(
      * A cut short enough to fit on one line gets no ellipsis from the drawer row,
      * so the cut itself carries the "…" whenever something was dropped.
      */
-    private fun String.cutTo(limit: Int): String =
-        if (length > limit) take(limit) + "…" else this
+    private fun String.cutTo(limit: Int): String {
+        if (length <= limit) return this
+        // A cut between the two halves of a surrogate pair would leave half an emoji in
+        // front of the "…": a broken glyph, and a string uiautomator refuses to dump.
+        val end = if (this[limit - 1].isHighSurrogate() && this[limit].isLowSurrogate()) limit - 1 else limit
+        return take(end) + "…"
+    }
 
     /** An untouched thread is not worth keeping in the history list. */
     val isBlank: Boolean
