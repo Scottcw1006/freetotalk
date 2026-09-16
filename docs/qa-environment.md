@@ -62,6 +62,9 @@ export PATH="$JAVA_HOME/bin:$HOME/Library/Android/sdk/platform-tools:$PATH"
 "$JAVA_HOME/bin/java" -version && ./gradlew -v | head -20
 ```
 
+**跑不經過裝置的測試時，是這個 JDK 在執行**，所以「這個環境的 Unicode／斷字行為是哪一版」由它決定（例如 `java.text.BreakIterator` 從 JDK 20 起才依 UAX #29 斷延伸字位叢集）。
+**當場問出版本，不要寫死**：`"$JAVA_HOME/bin/java" -version`。*最後確認：2026-09-16（回報 openjdk 25.0.2）*
+
 常用指令：
 
 | 目的 | 指令 |
@@ -102,7 +105,13 @@ adb shell wm size       # 實際解析度
 adb shell wm density    # 實際 density；若有 Override density 會一起列出
 ```
 
-*最後確認：2026-09-16（`adb devices -l` 回報 emulator-5554、model:sdk_gphone16k_arm64；`wm size` 1080x2424、`wm density` 420 無 override）*
+**裝置的資料分割區剩多少，動手前先問**（推大測資、重新解壓 GB 級資產檔之前都要）：
+
+```sh
+adb shell df -h /data
+```
+
+*最後確認：2026-09-16（`adb devices -l` 回報 emulator-5554、model:sdk_gphone16k_arm64；`wm size` 1080x2424、`wm density` 420 無 override）*。*2026-09-16 補：`df -h /data` 回報 20G 容量、13G 可用 —— 這個數字每台 AVD 不同，每輪自己問。*
 
 ---
 
@@ -162,6 +171,8 @@ adb exec-out run-as $PKG ls -l shared_prefs
 **確認方式**：`adb exec-out run-as $PKG sh -c 'ls -l --time-style=+%H files'` 回 `Unknown option`。
 
 **`adb exec-out run-as $PKG ls <目錄>` 的輸出是多欄排版（一行好幾個檔名），不是一行一個。** 拿去 `sort`／`comm` 比清單會全部對不上、看起來像檔案不見。要清單一律用 `ls -1` 或 `find`。
+**`ls -t`（依時間排序）同樣是多欄排版**，所以 `ls -t ... | head -1` 拿到的常常不是最新的那個檔，而是同一行的第一個檔名 —— 這個錯會讓你讀到**別的檔**還以為讀對了。要「最新的那一個」一律 `ls -1t`。
+**確認方式**：對一個有多個檔的目錄各跑 `ls -t | head -1` 與 `ls -1t | head -1`，兩者不同就是踩到了。*最後確認：2026-09-16*
 **確認方式**：對一個有多個檔的目錄各跑一次 `ls` 與 `ls -1`，數輸出行數（`wc -l`），前者遠少於檔案數。*最後確認：2026-09-15*
 
 **使用者已同意清空 App 資料的輪次**：不要用 `pm clear`（會連同幾百 MB 的資產檔一起刪）。先 `ls -la files shared_prefs` 看清楚，`force-stop` 之後只刪使用者資料所在的子目錄與偏好檔，再 `ls` 一次確認資產檔還在。*最後確認：2026-09-15*
@@ -369,6 +380,9 @@ adb shell "input text 'abc;4'"
 `java.lang.NullPointerException: Attempt to get length of null array`（`InputShellCommand.sendText`），**欄位完全不會變**。
 確認方式：焦點在受測 app 的某個輸入框時 `adb shell input text "<一個中文字>"`，預期看到上面那個例外，dump 欄位不變。**不要在焦點不在受測 app 時做這個確認**。
 
+**並非每個非 ASCII 字元都會拋例外：U+00A0（不斷行空格）送出時完全不報錯，欄位也完全不變** —— 這是無聲失敗，比 U+3000 那個例外更容易被當成「送進去了」。
+確認方式：焦點在輸入框時 `adb shell "input text '\u00a0'"`（直接貼那個字元），沒有任何輸出，逐碼位讀欄位不變。*最後確認：2026-09-16*
+
 **`input text` 是一連串很快的按鍵事件，受測欄位若會在輸入途中改寫自己的內容，偶爾會掉字**（整串送進去，讀回少一個字元）。同一個輸入重送幾次、每次都逐碼位讀回；只出現一次、重送重現不了的，記成「未能重現的一次觀察」，不要拿它判定。
 **確認方式**：同一個字串連送 N 次（每次清空後重送），把讀回結果列出來比對。*最後確認：2026-09-15*
 
@@ -426,6 +440,7 @@ adb shell input tap <該候選格中心>         # 從截圖量出來
 ### 6.4 幾個會讓你以為程式壞掉的鍵盤行為
 
 - **長按空白鍵會叫出「切換鍵盤」選單**，不是連續輸入空白。所以「長按空白」這個操作在這台裝置上產不出連續空白。用 `input keyevent 4` 關掉那個選單。需要「連續收到多個空白」時，用重複的 `input keyevent 62`。
+  - **確認方式**：`adb shell input swipe <空白鍵中心x> <y> <同座標> <同y> 1500` → 截圖看到「Change keyboard」對話框（列出目前啟用的版面），逐碼位讀欄位**一個字元都沒有進去**；`input keyevent 4` 關掉對話框後欄位仍為原樣。*最後確認：2026-09-16（模擬器）*
 - **英文版面按空白鍵會提交自動更正的建議字**（打 `ab` 再按空白可能變成別的字）。要把**一個精確的字串**（尤其含尾端空白）放進欄位，用單一次 `adb shell input text "...%s%s"` 一起送，不要用點空白鍵的方式補。
 - **英文版面連按兩次空白鍵會被輸入法換成「句號＋空白」**，不是兩個空白。所以「連續兩個空白」用點鍵的方式做不出來，一樣要用單一次 `input text "...%s%s"`。確認方式：逐碼位讀欄位，看到 `0x2e` 就是踩到了。
 - **游標移動與刪除可以用按鍵事件做**：`input keyevent 122`（MOVE_HOME）移到最前、`123`（MOVE_END）移到最後、`112`（FORWARD_DEL）刪游標後一個字、`67`（DEL）刪游標前一個字。
@@ -452,7 +467,8 @@ adb exec-out screencap -p > menu.png          # 選取工具列只在截圖裡�
 ```
 
 限制：**打不出來的字元就進不了剪貼簿**，因為第一步仍然要靠輸入法。這種情況照 spec 的規定記「本環境無法執行」。
-（先前確認過：這台裝置的輸入法在注音版面、英文版面與 `?123` 符號頁上都找不到全形空白 U+3000 的鍵。）
+- **2026-09-16 逐頁查過**：英文版面與注音版面的**主鍵盤、`?123` 第一頁、`=\<` 第二頁**四張鍵盤圖上，都沒有全形空白 U+3000 的鍵，也沒有不斷行空格 U+00A0 的鍵。
+  **確認方式**：每個版面各截一張主鍵盤、一張 `?123`、一張 `=\<`，逐鍵看鍵帽；再配合 6.2 的兩個送字確認（`input text` 送這兩個字元都進不了欄位）。**兩條路都不通，就等於這個字元在這個環境產不出來。**
 
 *最後確認：2026-09-15（`adb shell cmd clipboard` 仍回 `No shell command implementation.`）*
 
@@ -533,6 +549,10 @@ adb shell pidof $PKG                         # 確認行程在不在
 **不要用「我記得剛才開了抽屜/子畫面」去推現在按返回會退到哪裡。** 那個記憶會過期（有東西自己關掉了、或上一個點擊其實沒生效），而一旦推錯，那一次返回就把你送出 app 了。**每次按返回之前先問一次 `mCurrentFocus` 與 `mInputShown`，按完再問一次。**
 
 在 app 的最上層畫面按返回會離開 app，接著顯示的是**背景堆疊裡的另一個 app 或桌面**。之後的點擊會落在那個 app 上。每次按返回之後，先 dump 或截圖確認自己還在受測 app 裡再繼續點。
+
+**「按兩次返回」的批次特別容易踩到這個**：第一次 BACK 若因為鍵盤其實沒開而直接退了一層，第二次就把你送出 app；接下來整批指令會安靜地打在桌面或別的 app 上，而每一步都「成功」。
+做法：**能用畫面上自己的返回控制項就不要用系統 BACK**（它一次只退一層，語意固定），或在每次 BACK 之間都重新問一次 `mInputShown` 與 `mCurrentFocus`。
+**確認方式**：連續兩次 `input keyevent 4` 之後 `adb shell dumpsys window | grep -m1 mCurrentFocus`，焦點若不再是受測 app 就是踩到了。*最後確認：2026-09-16*
 
 ```sh
 adb shell dumpsys window | grep -m1 mCurrentFocus   # 現在焦點在哪個 app 的哪個視窗
@@ -624,6 +644,9 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
 3. 加 `-no-stdlib`，否則它會去找不存在的 kotlin home。
 
 **編譯時要把所有相依的來源檔一起放進來源目錄**（不是只放被測或探針那一個）。少放時錯誤是一整排 `unresolved reference`，**而清單很長，只看最後幾行會以為是型別推論的問題**。看錯誤一律從第一行讀起。
+
+**開始之前先把整個複本目錄刪掉重建**（`rm -rf <目錄>; mkdir -p <目錄>`）。scratchpad 的路徑可能與**先前某一輪**相同，裡面留著上一輪複製或改過的原始碼；同一個類別出現兩份時，編譯器報的是 `overload resolution ambiguity` 之類看起來與你無關的錯，而**更糟的情況是它編得過、你量到的是上一輪改過的那份**。
+**確認方式**：複製完之後 `find <來源目錄> -type f` 印出的檔案**只**有你這一輪放進去的那幾個；每個複本再 `cmp` 一次專案裡的原檔。
 
 **只搬得動「不依賴 Android 的檔案」**；被複製的檔案若參照到同 package 或其他 package 的檔案，一起複製。先跑一次編譯讓它告訴你缺什麼最快。
 
