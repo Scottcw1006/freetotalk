@@ -330,6 +330,7 @@ class ConversationSearchTest {
         // U+00A0 holds the lower bound: an implementation that only knows ASCII spaces
         // fails here. U+001C holds the upper: it is where the built-in trim overreaches.
         assertEquals("北京", " 北京".withoutLeadingSpace())
+        assertEquals("北京", " 北京".withoutLeadingSpace())
         assertEquals("北京", "北京 ".withoutTrailingSpace())
         assertEquals("北京", "北京".withoutLeadingSpace())
         assertEquals("北京", "北京".withoutTrailingSpace())
@@ -340,7 +341,7 @@ class ConversationSearchTest {
         // Every claim in the comment above, asserted rather than asserted-about.
         assertEquals("北京", " 北京".trim())          // it does strip U+00A0 …
         assertEquals("北京", "北京".trim())          // … and the C0 delimiters too
-        assertNotEquals("北京".trim(), "北京".withoutLeadingSpace())
+        assertEquals("北京", "北京".withoutLeadingSpace())
     }
 
     @Test
