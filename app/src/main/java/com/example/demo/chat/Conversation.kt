@@ -76,6 +76,12 @@ sealed interface EngineStatus {
     data class Failed(val message: String) : EngineStatus
 }
 
+/** Something about the saved threads the user needs to be told. */
+enum class StorageNotice(val message: String) {
+    StartedOver("之前的對話紀錄讀不出來，已經清空，從這裡重新開始。"),
+    SaveFailed("有一段對話沒能存下來。"),
+}
+
 data class ChatUiState(
     val conversation: Conversation,
     val history: List<Conversation> = emptyList(),
@@ -83,6 +89,8 @@ data class ChatUiState(
     val status: EngineStatus = EngineStatus.Extracting(0f),
     val isReplying: Boolean = false,
     val search: SearchUiState = SearchUiState(),
+    /** Waiting to be shown, oldest first. */
+    val notices: List<StorageNotice> = emptyList(),
 ) {
     val canSend: Boolean get() = status is EngineStatus.Ready && !isReplying
 
@@ -93,13 +101,12 @@ data class ChatUiState(
      * thread is the one most likely to be searched for.
      *
      * This is a merge of two sources that can in principle describe the same thread:
-     * [history] is what was loaded from disk, [conversation] is the live one. Today they
-     * never overlap — refreshing history filters the open thread out — but that holds
-     * only because of the order two state updates happen in, which is not something the
-     * next person to touch thread switching would know they were relying on. So the open
+     * [history] is what was saved, [conversation] is the live one. The history list
+     * leaves the open thread out, but it is worked out separately from the switch that
+     * changes which thread is open, so for a moment the two can overlap. So the open
      * thread goes first and the merge de-duplicates: when the same thread does arrive
      * twice, the right one to keep is the in-memory copy, because it may hold messages
-     * that were never saved, or a reply still streaming in. The disk is never newer.
+     * that were never saved, or a reply still streaming in. What was saved is never newer.
      */
     val allThreads: List<Conversation>
         get() = (listOf(conversation) + history)

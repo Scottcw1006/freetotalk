@@ -14,6 +14,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -36,7 +37,7 @@ private const val REPLY_CHARACTER_CAP = 800
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val engine = LlmEngine.get(application)
-    private val repository = ConversationRepository(application)
+    private val repository = ConversationRepository.get(application)
     private val session = SessionPreferences(application)
     private val available = ModelStore.installed(application)
 
@@ -67,16 +68,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            // Before anything reads the store: the old per-thread files are not carried over.
+            repository.removeLegacyThreads()
             // Land back on the exact thread the user left, not merely the newest one.
-            // If that thread was never written in it has no file, and the blank thread
-            // built above — already carrying the remembered model — stands in for it.
+            // If that thread was never written in it was never saved, and the blank
+            // thread built above — already carrying the remembered model — stands in
+            // for it. Where the user was is left as it was either way: a blank thread's
+            // id is worth nothing after a restart.
             val resumed = session.lastThreadId?.let { id -> repository.find(id) }
             if (resumed != null) {
                 _uiState.update { it.copy(conversation = resumed) }
             }
-            rememberSession()
-            refreshHistory()
             loadModel(_uiState.value.conversation.model)
+        }
+        viewModelScope.launch {
+            val openId = _uiState.map { it.conversation.id }.distinctUntilChanged()
+            historyOf(repository.all, openId).collect { history ->
+                _uiState.update { state ->
+                    // Filtered once more against the thread open right now, in case it
+                    // changed after this list was worked out; the next list follows anyway.
+                    state.copy(history = history.filterNot { it.id == state.conversation.id })
+                }
+            }
+        }
+        viewModelScope.launch {
+            repository.wasReset.collect { reset ->
+                if (reset) {
+                    notify(StorageNotice.StartedOver)
+                    repository.acknowledgeReset()
+                }
+            }
         }
     }
 
@@ -117,12 +138,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (spec == _uiState.value.conversation.model) return
         stop()
         viewModelScope.launch {
-            repository.save(_uiState.value.conversation)
+            persist(_uiState.value.conversation)
             _uiState.update {
                 it.copy(conversation = newThread(it.conversation.persona, spec))
             }
             rememberSession()
-            refreshHistory()
             loadModel(spec)
         }
     }
@@ -136,12 +156,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun switchPersona(persona: Persona) {
         stop()
         viewModelScope.launch {
-            repository.save(_uiState.value.conversation)
+            persist(_uiState.value.conversation)
             _uiState.update {
                 it.copy(conversation = newThread(persona, it.conversation.model))
             }
             rememberSession()
-            refreshHistory()
         }
     }
 
@@ -151,11 +170,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (id == _uiState.value.conversation.id) return
         stop()
         viewModelScope.launch {
-            repository.save(_uiState.value.conversation)
+            persist(_uiState.value.conversation)
             val opened = repository.find(id) ?: return@launch
             _uiState.update { it.copy(conversation = opened) }
             rememberSession()
-            refreshHistory()
             loadModel(opened.model)
         }
     }
@@ -169,7 +187,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 rememberSession()
             }
-            refreshHistory()
         }
     }
 
@@ -208,12 +225,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         session.remember(thread.id, thread.model, thread.persona)
     }
 
-    private suspend fun refreshHistory() {
-        val all = repository.all()
+    /**
+     * Saves go through here so that a write that did not happen is said out loud. The
+     * thread stays on screen either way; only the copy on the phone is missing.
+     */
+    private suspend fun persist(conversation: Conversation) {
+        if (!repository.save(conversation)) notify(StorageNotice.SaveFailed)
+    }
+
+    private fun notify(notice: StorageNotice) {
+        _uiState.update { it.copy(notices = it.notices + notice) }
+    }
+
+    /** The screen has finished showing [notice]. */
+    fun noticeShown(notice: StorageNotice) {
         _uiState.update { state ->
-            // The open thread lives in `conversation`; showing it twice would be a lie
-            // about how many threads exist.
-            state.copy(history = all.filterNot { it.id == state.conversation.id })
+            val index = state.notices.indexOf(notice)
+            if (index < 0) state else state.copy(notices = state.notices.filterIndexed { i, _ -> i != index })
         }
     }
 
@@ -317,9 +345,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             is ReplyOutcome.Keep -> updateMessage(replyId, outcome.text, streaming = false)
         }
         _uiState.update { it.copy(isReplying = false) }
-        repository.save(_uiState.value.conversation)
+        persist(_uiState.value.conversation)
         rememberSession()
-        refreshHistory()
     }
 
     /**
@@ -365,8 +392,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // job, which is the whole difference.
         val stopped = _uiState.value.conversation
         viewModelScope.launch {
-            repository.save(stopped)
-            refreshHistory()
+            persist(stopped)
         }
     }
 

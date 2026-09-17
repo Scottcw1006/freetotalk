@@ -39,6 +39,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -92,6 +95,20 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
     // they are in the middle of typing. The query itself lives in the ViewModel, so the
     // two survive the same turn of the screen.
     var searching by rememberSaveable { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+
+    // Kept above the screens that replace the chat, so a notice raised while searching
+    // waits and is shown on the way back rather than being lost.
+    val notice = state.notices.firstOrNull()
+    LaunchedEffect(notice) {
+        if (notice == null) return@LaunchedEffect
+        snackbar.showSnackbar(
+            message = notice.message,
+            withDismissAction = true,
+            duration = SnackbarDuration.Long,
+        )
+        viewModel.noticeShown(notice)
+    }
 
     if (comparing) {
         CompareScreen(onBack = { comparing = false })
@@ -154,6 +171,7 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxSize()
                 .imePadding(),
+            snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
                 TopAppBar(
                     navigationIcon = {
