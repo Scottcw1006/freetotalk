@@ -111,7 +111,7 @@ adb shell wm density    # 實際 density；若有 Override density 會一起列�
 adb shell df -h /data
 ```
 
-*最後確認：2026-09-16（`adb devices -l` 回報 emulator-5554、model:sdk_gphone16k_arm64；`wm size` 1080x2424、`wm density` 420 無 override）*。*2026-09-16 補：`df -h /data` 回報 20G 容量、13G 可用 —— 這個數字每台 AVD 不同，每輪自己問。*
+*最後確認：2026-09-16（`adb devices -l` 回報 emulator-5554、model:sdk_gphone16k_arm64；`wm size` 1080x2424、`wm density` 420 無 override）*。*2026-09-16 補：`df -h /data` 回報 20G 容量、13G 可用 —— 這個數字每台 AVD 不同，每輪自己問。* *2026-09-17 再確認：四條指令照跑，序號當場抄得到。*
 
 ---
 
@@ -254,6 +254,13 @@ adb shell -n "rm -rf /data/local/tmp/qa"
 **確認方式**：推一個手寫 JSON，讓 app 讀寫它一次，再拉回來 `cmp`（不同）與 parse 後比較（相同）。
 
 *最後確認：2026-09-14（快照 → 推測試檔 → 大量操作 → 刪檔 → 還原 → 雜湊與 baseline 完全相同；手寫 JSON 被重新序列化後 `cmp` 不同、parse 後相同）。2026-09-15：推測試檔、`comm` 比對（改用 `ls -1`）、手寫 JSON 重新序列化後 parse 相同，再次確認；「先讓 app 寫一次再取位元組基準」再次照做成立。*
+
+---
+
+**App 用 SQLite（WAL 模式）存資料時，讀它要把主檔、`-wal`、`-shm` 三個一起複製出來再開**：最近的寫入常常只在 `-wal` 裡，只拉主檔會讀到舊內容。現成工具：`docs/qa-tools/sqlitepull.sh PKG <資料庫相對路徑> <輸出目錄>`（只讀裝置、不寫回）；在主機的複本上用 `sqlite3` 開。主機的 `sqlite3` 在 SDK 的 platform-tools 裡。
+- 主機上的 `sqlite3` 關閉最後一個連線時會把 `-wal` 併回主檔並刪掉它；要把改過的內容推回裝置，推主檔、並在裝置上刪掉舊的 `-wal`/`-shm`（App 停止時做）。
+- 在裝置上把資料庫檔 `chmod 444` 時，Android 的開檔會直接失敗（`Could not open the database in read/write mode`），**連讀取也一起失敗**——它模擬的不是「只有寫入失敗」。要判讀這種前置下的結果，先想清楚它實際造出的是哪一種狀態。
+**確認方式**：`docs/qa-tools/sqlitepull.sh selftest PKG <資料庫相對路徑>` 印出 `selftest OK: N tables`。*最後確認：2026-09-17*
 
 ---
 
@@ -580,6 +587,13 @@ adb shell cmd connectivity airplane-mode disable   # 收尾：還原成原值
 
 **確認方式**：enable 之後 `settings get global airplane_mode_on` 回 `1`，disable 之後回 `0`。
 
+**受測 App 在批次途中閃退時，後面的點擊會落在背景裡的另一個 App 上**，而批次照樣「成功」跑完。症狀是截圖裡出現別的 App。確認是不是閃退（而不是自己按了 BACK）：
+```sh
+adb logcat -d -b events | grep -E 'am_crash|am_proc_died' | grep <套件名>   # native crash 會寫 "Native crash"
+adb logcat -d | grep -E ' F DEBUG|Fatal signal' | head -40                   # 堆疊
+```
+**確認方式**：上面第一條在沒有閃退的輪次沒有新輸出；有閃退時時間戳對得上截圖。*最後確認：2026-09-17*
+
 *最後確認：2026-09-15（am kill + am start 從 task 還原；force-stop + am start 冷啟動；遮罩節點關閉面板；BACK 依鍵盤狀態逐次按）*
 
 ---
@@ -649,6 +663,9 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
 "$JAVA_HOME/bin/java" -cp "<輸出目錄>:$STD" <套件>.<檔名>Kt
 ```
 
+**要跑用到 `kotlinx-coroutines-test` 的測試時，`kotlinx-coroutines-core-jvm` 必須挑同一個版本**（快取裡常有好幾版，`head -1` 可能拿到舊的）；用 `find ... -name 'kotlinx-coroutines-core-jvm-<同版號>.jar'` 指名。
+**確認方式**：`find ~/.gradle/caches -name 'kotlinx-coroutines-*-jvm-*.jar' | grep -v sources` 列出所有版本，挑出 core 與 test 版號相同的一對。*最後確認：2026-09-17*
+
 三個一定會踩到的點（少一個就會失敗，而錯誤訊息都看不出真正原因）：
 
 1. `kotlin-stdlib` 與 `kotlinx-coroutines-core-jvm` 要放在**執行編譯器的那個 `-cp`**（不是只放在給被編譯程式的 `-cp`）。少了會報 `遺漏 JavaFX 執行元件` 或 `NoClassDefFoundError: kotlinx/coroutines/CoroutineScope`，兩個都與真正的原因無關。
@@ -699,6 +716,7 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
    - `ui.py`：UI dump helper（找節點、以 class 點欄位、逐碼位讀欄位）。`python3 docs/qa-tools/ui.py selftest`
    - `hashdir.sh`：列出 app 私有目錄下每個檔案的 sha256（排序過），操作前後各存一份再 diff。`docs/qa-tools/hashdir.sh selftest <套件名>` —— 會比對「雜湊行數 == 裝置端檔案數且不為 0」。*最後確認：2026-09-15*
    - `jsondir.py`：把 app 私有目錄下每個 JSON 檔 parse 後以排序過的正規形式列出（不能 parse 的改印 sha256）。**用途是回答「內容有沒有變」而不是「位元組有沒有變」** —— app 重新序列化同一份資料，位元組會不同而內容相同（見第 4 節「已知的位元組層面陷阱」）。操作前後各存一份再 `diff`。`python3 docs/qa-tools/jsondir.py selftest <套件名> <目錄>` 印出 `selftest OK: N json files listed` 才用。*最後確認：2026-09-16*
+   - `sqlitepull.sh`：把 App 的 SQLite 資料庫（含 `-wal`/`-shm`）複製到主機（見第 4 節末）。`docs/qa-tools/sqlitepull.sh selftest <套件名> <資料庫相對路徑>`。*最後確認：2026-09-17*
    - `uitext.py`：一次列出畫面上每個文字節點的 `y0,y1`、`repr(text)` 與**逐碼位**（`U+xxxx`）。`ui.py field` 只看得到輸入框，這支看得到所有節點，判「某一列尾端是不是完整的字」「某段文字裡是不是全形空白」時不必再截圖。`python3 docs/qa-tools/uitext.py selftest` 印出 `selftest OK: N nodes` 才用；加一個參數只印含該子字串的節點。*最後確認：2026-09-16*
 
 4. **要在「只存在幾秒的狀態」裡動作時，把整串操作寫進同一個 `adb shell`**：`adb shell "input tap A; sleep 0.3; input tap B; sleep 0.9; input text '…'"`。貴的是主機↔裝置的來回（每次約 0.04 秒起跳，工具呼叫本身的額外開銷更大），裝置端的 `sleep` 幾乎免費。實測：同一串操作拆成 4 次 Bash 呼叫要 6–8 秒才走完，包在一個 `adb shell` 裡約 2.2 秒 —— 差別足以決定攔不攔得到一個短命狀態。
@@ -709,4 +727,7 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
    **確認方式**：批次的第一行先 `adb shell dumpsys window | grep -m1 mCurrentFocus`，再 dump 一次確認畫面上有你預期的那個節點，兩者都對才往下送。*最後確認：2026-09-16*
    - **不能用「跳過」來省**。腳本改過之後先跑它的確認方式 —— 腳本腐爛時會安靜地做錯事。
 
-*最後確認：2026-09-15（守衛自測印出 ABORT 且未執行後續；hashdir.sh selftest OK）*
+6. **`ui.py texts` 只列有文字或描述的節點**：空的輸入框不在裡面。要確認輸入框在不在，用 `ui.py dump` 或 `ui.py field`。主機的 python 沒有 PIL，要拼圖或裁圖就改用逐張讀截圖。
+   **確認方式**：輸入框為空時 `ui.py texts | grep EditText` 無輸出，`ui.py field` 印出 `'' []`。*最後確認：2026-09-17*
+
+*最後確認：2026-09-15（守衛自測印出 ABORT 且未執行後續；hashdir.sh selftest OK）。2026-09-17：ui.py / uitext.py selftest OK。*
