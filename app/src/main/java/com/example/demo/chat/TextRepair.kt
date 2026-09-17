@@ -7,8 +7,9 @@ import java.nio.charset.CodingErrorAction
 /**
  * Cleans up what comes back from the model before anyone reads it.
  *
- * Applied both when a reply is generated and when an old thread is read back, so
- * conversations saved before a repair landed are fixed on screen too.
+ * Applied while a reply is generated, so what gets saved is already repaired. Saved
+ * threads are read back untouched: repairing them again would also rewrite what the
+ * user typed.
  */
 fun String.repairModelText(): String =
     decodeByteLevelTokens()

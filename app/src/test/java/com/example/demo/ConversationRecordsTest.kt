@@ -30,8 +30,10 @@ class ConversationRecordsTest {
         updatedAt: Long = 2_000L,
     ) = Conversation(
         id = id,
+        // Neither is the default: a reader that drops the field and falls back to the
+        // default would otherwise read back an equal value and pass.
         persona = Persona.Teacher,
-        model = ModelSpec.Gemma1B,
+        model = ModelSpec.Qwen05B,
         createdAt = 1_000L,
         updatedAt = updatedAt,
         messages = messages.toList(),
@@ -137,7 +139,7 @@ class ConversationRecordsTest {
 
         assertEquals("names", record.id)
         assertEquals(Persona.Teacher.name, record.persona)
-        assertEquals(ModelSpec.Gemma1B.name, record.model)
+        assertEquals(ModelSpec.Qwen05B.name, record.model)
         assertEquals(1_000L, record.createdAt)
         assertEquals(2_000L, record.updatedAt)
     }
