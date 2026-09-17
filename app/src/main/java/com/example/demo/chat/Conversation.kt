@@ -80,6 +80,7 @@ sealed interface EngineStatus {
 enum class StorageNotice(val message: String) {
     StartedOver("之前的對話紀錄讀不出來，已經清空，從這裡重新開始。"),
     SaveFailed("有一段對話沒能存下來。"),
+    CannotOpen("目前讀不到之前的對話紀錄（紀錄沒有被刪除），這段期間的對話也可能存不下來。"),
 }
 
 data class ChatUiState(
@@ -91,6 +92,8 @@ data class ChatUiState(
     val search: SearchUiState = SearchUiState(),
     /** Waiting to be shown, oldest first. */
     val notices: List<StorageNotice> = emptyList(),
+    /** The saved threads could not be opened this launch, so [history] is empty for that reason. */
+    val historyUnavailable: Boolean = false,
 ) {
     val canSend: Boolean get() = status is EngineStatus.Ready && !isReplying
 

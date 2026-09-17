@@ -1,7 +1,6 @@
 package com.example.demo.data
 
 import android.content.Context
-import android.database.sqlite.SQLiteCantOpenDatabaseException
 import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -31,10 +30,15 @@ import kotlinx.coroutines.withContext
  * streaming in is not saved yet, so nothing that must show what the user can see —
  * search above all — reads from here alone. There is deliberately no query method.
  *
- * When the stored threads as a whole cannot be read, they are thrown away and the store
- * starts over, and [wasReset] says so once, so the user is told rather than finding the
- * history mysteriously empty. Failing to write is different: the data is fine, so it is
- * reported to the caller and nothing is discarded.
+ * Three ways the store can let the user down, told apart by whether the saved threads
+ * themselves are damaged:
+ * - damaged (a corrupt file, a schema Room cannot use): thrown away, the store starts
+ *   over, and [wasReset] says so once;
+ * - not openable, with nothing to show they are damaged (a read-only file, wrong
+ *   permissions): left exactly as they are, and [cannotOpen] says so — the next launch
+ *   simply tries again;
+ * - one write that does not go through: nothing is touched, and the caller is told.
+ * When in doubt it is the second: throwing threads away cannot be undone.
  */
 class ConversationRepository private constructor(context: Context) {
 
@@ -58,17 +62,24 @@ class ConversationRepository private constructor(context: Context) {
         _wasReset.value = false
     }
 
+    private val _cannotOpen = MutableStateFlow(false)
+    /** True once the saved threads could not be opened this launch; they are still there. */
+    val cannotOpen: StateFlow<Boolean> = _cannotOpen.asStateFlow()
+
     /** Every readable saved thread, newest first, re-emitted whenever anything is written. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val all: Flow<List<Conversation>> = database.flatMapLatest { db ->
         db.conversations().observeAll()
             .map(ConversationReader::all)
-            .onEach { succeededSinceReset = true }
-            // Resetting swaps in a new database, which this flow then follows. If that
-            // does not help either, the list stays as it last was rather than taking the
-            // app down.
-            .catch { e -> if (e.meansStoreIsUnreadable()) reset(db) else throw e }
-            .catch { }
+            .onEach {
+                succeededSinceReset = true
+                _cannotOpen.value = false
+            }
+            // Resetting swaps in a new database, which this flow then follows. Anything
+            // else leaves the list as it was rather than taking the app down.
+            .catch { e ->
+                if (e.meansStoreIsDamaged()) reset(db) else _cannotOpen.value = true
+            }
     }
 
     suspend fun find(id: String): Conversation? = attempt { db ->
@@ -96,7 +107,7 @@ class ConversationRepository private constructor(context: Context) {
         val db = database.value
         val first = runCatchingUnlessCancelled { block(db) }
         val error = first.exceptionOrNull() ?: return first.also { succeededSinceReset = true }
-        if (!error.meansStoreIsUnreadable()) return first
+        if (!error.meansStoreIsDamaged()) return first
         reset(db)
         return runCatchingUnlessCancelled { block(database.value) }
             .onSuccess { succeededSinceReset = true }
@@ -160,14 +171,13 @@ class ConversationRepository private constructor(context: Context) {
 }
 
 /**
- * A corrupt file, a file that cannot be opened, a schema Room cannot use, or a database
- * that was closed underneath us after Android discarded it as corrupt. Anything else —
+ * A corrupt file, a schema Room cannot use, or a database that was closed underneath us
+ * after Android discarded it as corrupt. Anything else — a file that cannot be opened,
  * running out of space, a read-only file, any other failure — is not in this list,
  * because resetting throws every saved thread away and those threads may be fine.
  */
-private fun Throwable.meansStoreIsUnreadable(): Boolean =
+private fun Throwable.meansStoreIsDamaged(): Boolean =
     this is SQLiteDatabaseCorruptException ||
-        this is SQLiteCantOpenDatabaseException ||
         (this is IllegalStateException && message.orEmpty().let { text ->
             ROOM_SCHEMA_MISMATCH in text || CLOSED_BY_CORRUPTION_HANDLER in text
         })

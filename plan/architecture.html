@@ -570,7 +570,7 @@
 
           <!-- footnote line -->
           <line class="edge" x1="20" y1="390" x2="840" y2="390" stroke-dasharray="2 5"/>
-          <text class="sub" x="20" y="410">02 至 06 全程持有 Mutex；Flow 收束時透過 awaitClose 取消生成，與「停止」按鈕共用同一條路徑</text>
+          <text class="sub" x="20" y="410">02 至 06 全程持有 Mutex；Flow 收束時透過 awaitClose 取消生成並等推論停下，與「停止」按鈕共用同一條路徑</text>
         </svg>
       </div>
       <figcaption>
@@ -581,6 +581,11 @@
         停止那條的機制與前兩條不同：前兩條是讓串流自己收束，流程正常走完；停止是取消整個工作。差別會露在收尾上——被取消的工作裡，掛起的存檔呼叫不會執行，所以停止那一次的落盤必須另外安排，不能靠原本的收尾區塊。三條各自留下自己的標記，停止留下的是「…（已停止）」。
       </figcaption>
     </figure>
+    <p>
+      <strong>取消只是發出請求。</strong>原生的推論執行緒在取消之後還會跑一小段，所以收束時要<strong>等推論真的停下來，才關掉 Session、才放開 Mutex</strong>（最多等 10 秒）。
+      不等的後果是：串流中切換模型時，換模型的那一步會在推論還在讀模型時把它關掉，App 在原生程式裡閃退（SIGSEGV）。這段等待看起來像可以省掉的延遲，別拿掉它。
+      代價是卡住時，停止之後的下一句要多等最多 10 秒才開始生成。
+    </p>
   </section>
 
   <section>
@@ -827,9 +832,27 @@
       <strong>舊版的 JSON 檔不搬遷。</strong>App 每次啟動、碰資料庫之前，會把 <code>filesDir/conversations/</code> 這一個子目錄整個刪掉，而且只刪它——模型檔就放在它的上一層。刪不掉就等下次啟動再試，不影響開啟。
     </p>
     <p>
-      <strong>整份資料庫讀不起來時</strong>（檔案損毀、打不開、結構不認得），丟掉它、重新開始，並提示一次「之前的對話紀錄讀不出來，已經清空，從這裡重新開始。」。
+      <strong>資料庫出問題時，分法看的是「存下來的內容本身壞了沒有」</strong>，不是錯誤發生在開檔還是讀寫：
+    </p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>情況</th><th>原本的紀錄</th><th>使用者看到</th></tr></thead>
+        <tbody>
+          <tr><td><strong>內容壞了</strong>：檔案損毀、結構不認得</td><td>丟掉，重新開始</td><td>提示一次「之前的對話紀錄讀不出來，已經清空，從這裡重新開始。」</td></tr>
+          <tr><td><strong>開不起來，而且判斷不出內容壞了</strong>：檔案被設成唯讀、權限不對</td><td><strong>不動</strong>，下次啟動再試</td><td>每次啟動提示一次「目前讀不到之前的對話紀錄（紀錄沒有被刪除），這段期間的對話也可能存不下來。」；抽屜寫「目前讀不到之前的對話紀錄。」；每次存檔失敗再提示「有一段對話沒能存下來。」</td></tr>
+          <tr><td><strong>開得起來，但某一次寫不進去</strong>：空間不足</td><td>不動</td><td>「有一段對話沒能存下來。」</td></tr>
+          <tr><td>只有其中一段讀不起來</td><td>其餘照常</td><td>那一段不出現在清單上</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <strong>判斷不出來時，一律當成開不起來。</strong>丟掉是不能復原的，而讓資料庫開不起來的原因往往會自己消失；判錯的另一個方向只是這次啟動讀不到。
+      所以只有 Android 回報的損毀、Room 認不得的結構、以及 Android 因損毀而關掉連線這幾種會丟掉重來（<code>ConversationRepository</code> 裡的 <code>meansStoreIsDamaged</code>）；「開不了檔」那一類錯誤、唯讀、以及其他任何失敗都不會。
+      注意唯讀在 Android 上造成的是整個開不起來（<code>Could not open the database in read/write mode</code>），不是「只有寫入失敗」。
+    </p>
+    <p>
       Android 遇到損毀的檔案會自己刪掉重建、不通知任何人，所以 App 是從「資料庫被重新建立了一次」這件事認出重來發生過的（記號放在 <code>shared_prefs/conversation_store.xml</code>，跟著 App 資料一起清掉，全新安裝不會誤報）。
-      <strong>寫不進去</strong>（空間不足、唯讀）則不同：已存的資料沒有壞，所以什麼都不丟，只提示「有一段對話沒能存下來。」。
+      同一個行程裡，重來之後只要有一次讀寫成功，之後再壞還能再重來；剛重建的資料庫馬上又失敗，就不再重來，免得無限循環。
     </p>
 
     <div class="note">
@@ -1057,11 +1080,13 @@
           <tr><th>層</th><th>位置</th><th>負責回答的問題</th></tr>
         </thead>
         <tbody>
+          <tr><td class="layer-cell">入口</td><td class="path">MainActivity.kt</td><td>唯一的 Activity：開啟 edge-to-edge，套上主題，放進聊天 App</td></tr>
+          <tr><td class="layer-cell">畫面</td><td class="path">ui/theme/</td><td>顏色、字型與 Material 主題（含淺色與深色）</td></tr>
           <tr><td class="layer-cell">畫面</td><td class="path">ui/ChatScreen.kt</td><td>聊天畫面、歷史抽屜、人格選單；也是三個畫面之間的切換點</td></tr>
           <tr><td class="layer-cell">畫面</td><td class="path">ui/SearchScreen.kt</td><td>搜尋輸入與命中列表。自己不持有狀態，也不決定什麼算命中</td></tr>
           <tr><td class="layer-cell">畫面</td><td class="path">ui/CompareScreen.kt</td><td>比較畫面與結果卡片</td></tr>
           <tr><td class="layer-cell">畫面</td><td class="path">ui/RichText.kt</td><td>把解析好的 Markdown 區塊畫成文字</td></tr>
-          <tr><td class="layer-cell">狀態</td><td class="path">chat/ChatViewModel.kt</td><td>對話狀態、人格與模型切換、長度上限與迴圈中斷、使用者停止與停止當下的存檔、存檔、啟動還原、查詢字串；把歷史清單接到資料庫的變動上；存檔失敗與資料重來時要顯示的提示</td></tr>
+          <tr><td class="layer-cell">狀態</td><td class="path">chat/ChatViewModel.kt</td><td>對話狀態、人格與模型切換、長度上限與迴圈中斷、使用者停止與停止當下的存檔、存檔、啟動還原、查詢字串；把歷史清單接到資料庫的變動上；資料重來、開不起來、存檔失敗時要顯示的提示</td></tr>
           <tr><td class="layer-cell">狀態</td><td class="path">chat/Conversation.kt</td><td>訊息與對話的資料模型、引擎狀態、UI state、儲存提示的文字；也是「所有對話」＝開啟中的那段加上歷史的定義處</td></tr>
           <tr><td class="layer-cell">狀態</td><td class="path">compare/CompareViewModel.kt</td><td>依序執行、計時、tok/s</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/TextRepair.kt</td><td>byte-level 還原、反跳脫、硬換行標記與停止 token 清理</td></tr>
@@ -1069,13 +1094,13 @@
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ModelMarkdown.kt</td><td>模型寫的那一點 Markdown 該怎麼切成區塊與強調</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ConversationSearch.kt</td><td>什麼算命中、片段怎麼裁、標示要落在哪幾格</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/HistoryList.kt</td><td>歷史清單＝存下來的所有對話扣掉開著的那段，兩邊任一變動就重算</td></tr>
-          <tr><td class="layer-cell">純邏輯</td><td class="path">data/ConversationRecords.kt</td><td>一段對話和資料庫裡那一列怎麼互轉；解不開的列怎麼處理；空白對話存檔時要刪而不是寫</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">data/ConversationRecords.kt</td><td>一段對話和資料庫裡那一列怎麼互轉；解不開的列怎麼處理；空白對話存檔時要刪而不是寫。那一列的類別帶著 Room 的表格標註，但這個檔不開資料庫、不依賴 Android</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">data/LegacyConversations.kt</td><td>啟動時刪掉舊版的對話目錄，只刪那一個</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ReplyEnding.kt</td><td>一則回覆有五種結束方式（正常、長度上限、重複迴圈、使用者停止、失敗），各自留下什麼文字，以及哪一種不留下回覆</td></tr>
           <tr><td class="layer-cell">模型</td><td class="path">llm/LlmEngine.kt</td><td>單例引擎。模型載入與卸載、Session 生命週期、串流、token 預算裁切</td></tr>
           <tr><td class="layer-cell">模型</td><td class="path">llm/ModelSpec.kt</td><td>有哪些模型可以跑、每個模型的 prompt 格式與 token 上限</td></tr>
           <tr><td class="layer-cell">模型</td><td class="path">llm/ModelStore.kt</td><td>哪些模型真的打包進來了、把它解壓到 filesDir</td></tr>
-          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationRepository.kt</td><td>對話從哪裡來、到哪裡去。聊天層唯一的入口；行程內唯一的資料庫實例；資料庫讀不起來時重來、寫不進去時回報</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationRepository.kt</td><td>對話從哪裡來、到哪裡去。聊天層唯一的入口；行程內唯一的資料庫實例；分辨內容壞了（重來）、開不起來（不動、回報）、寫不進去（不動、回報）</td></tr>
           <tr><td class="layer-cell">資料</td><td class="path">data/ConversationDatabase.kt</td><td>Room 資料庫與它的四個指令：取全部（可訂閱）、依 id 取、寫入、刪除</td></tr>
           <tr><td class="layer-cell">資料</td><td class="path">data/SessionPreferences.kt</td><td>使用者上次停在哪：對話 id、模型、人格</td></tr>
           <tr><td class="layer-cell">人格</td><td class="path">persona/Persona.kt</td><td>五種人格的 systemPrompt 與開場白</td></tr>
@@ -1083,7 +1108,8 @@
       </table>
     </div>
     <p style="font-size:14px;color:var(--muted)">
-      「純邏輯」那一層刻意不依賴 Android、Compose 或資料庫，所以上表列為純邏輯的每一塊都能在 JVM 上直接跑單元測試（<code>app/src/test</code>）。
+      「純邏輯」那一層刻意不依賴 Android、Compose，也不開資料庫，所以上表列為純邏輯的每一塊都能在 JVM 上直接跑單元測試（<code>app/src/test</code>）。
+      唯一的例外是 <code>data/ConversationRecords.kt</code> 帶著 Room 的表格標註（只是標註，不需要資料庫或 Android 就能執行）。
       資料庫本身沒有自動化測試，它靠的是「每次寫入只有一個指令」這個結構與裝置上的驗收。
       畫面只負責把算好的結果畫出來——搜尋的標示位置就是這樣送過去的。
     </p>
@@ -1091,7 +1117,7 @@
       <h3><code>ConversationRepository</code>：一個行程一份，只知道存下來的東西</h3>
       <p>
         它曾經什麼事都不做，只是轉發。換成資料庫之後它有了三件事：握著行程內唯一的資料庫實例（Room 只通知同一個實例的訂閱者，兩個實例會讓歷史清單停在舊的樣子）、
-        把「取全部」做成會跟著變動重送的資料流、以及分辨「整份讀不起來」（丟掉重來並提示）和「寫不進去」（什麼都不丟，回報給呼叫端）。
+        把「取全部」做成會跟著變動重送的資料流、以及分辨「內容壞了」（丟掉重來並提示）、「開不起來」（什麼都不丟，讓畫面告知）和「寫不進去」（什麼都不丟，回報給呼叫端），判斷不出來時當成開不起來。
         它仍然刻意沒有搜尋或查詢方法——搜尋要看畫面上有什麼，而它只知道存下來了什麼。
       </p>
     </div>

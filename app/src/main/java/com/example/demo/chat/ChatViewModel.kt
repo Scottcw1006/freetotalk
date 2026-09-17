@@ -15,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -90,6 +91,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     state.copy(history = history.filterNot { it.id == state.conversation.id })
                 }
             }
+        }
+        viewModelScope.launch {
+            // Said once, and the drawer keeps saying it: an empty history list would
+            // otherwise read as "everything is gone" long after the notice has faded.
+            repository.cannotOpen.first { it }
+            _uiState.update { it.copy(historyUnavailable = true) }
+            notify(StorageNotice.CannotOpen)
         }
         viewModelScope.launch {
             repository.wasReset.collect { reset ->

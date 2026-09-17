@@ -318,7 +318,7 @@ private fun HistoryDrawer(
 
         if (state.history.isEmpty()) {
             Text(
-                text = "還沒有其他對話。",
+                text = if (state.historyUnavailable) "目前讀不到之前的對話紀錄。" else "還沒有其他對話。",
                 modifier = Modifier.padding(20.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
