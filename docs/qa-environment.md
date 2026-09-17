@@ -154,9 +154,10 @@ adb shell pm list packages -3 | grep -i <你認得的字>
 
 ---
 
-## 4. App 私有資料的快照與還原（實機上有使用者的真實資料）
+## 4. App 私有資料的快照與還原（裝置上可能有不能丟的資料）
 
-這台是使用者本人的裝置。**動手前先完整快照並記下雜湊，測完逐位元組驗證還原。**
+**除非呼叫者明講使用者已同意清空驗收裝置上的 App 資料，否則一律當成裝置上有不能丟的資料**：動手前先完整快照並記下雜湊，測完逐位元組驗證還原。（驗收裝置現在是模擬器，但「能不能丟」不是從裝置型別推得出來的。）
+**確認方式**：`adb devices -l` 看序號是 `emulator-*` 還是實機；不論哪一種，都回頭看呼叫者的 prompt 有沒有那句同意。*最後確認：2026-09-17*
 
 App 是 debuggable 的，所以可以用 `run-as` 讀寫它的私有目錄。
 **先把目錄樹問出來，不要假設資料放在哪個子目錄**（子目錄名是產品自己的事，會改）：
@@ -288,6 +289,10 @@ adb exec-out uiautomator dump /dev/tty
 **畫面上任何一個文字節點含有「落單的 UTF-16 代理字元」（例如被截斷切開的 emoji）時，uiautomator dump 會整個崩潰**：終端只印 `Killed`，`ui.py` 報 `ABORT: dump failed: Killed`，存到 `/sdcard` 的檔是 0 bytes。**這不是記憶體不足**，重試也一樣。
 - 做法：讓那個節點離開畫面（捲走、關掉面板、換畫面）再 dump；那個畫面上的判讀只能改用截圖。
 - **確認方式**：dump 失敗時跑 `adb logcat -d | grep -A2 'FATAL EXCEPTION' | grep 'Bad surrogate pair'`，有輸出就是這個原因；換到別的畫面後 `ui.py selftest` 恢復正常。*最後確認：2026-09-15*
+
+**兩個行程同時跑 uiautomator dump，其中一個（或兩個）會被砍掉**，症狀與上一條一模一樣（`ABORT: dump failed: Killed`），但 logcat 沒有 `Bad surrogate pair`。最常見的來源是：一條逾時被移到背景的指令還在迴圈裡 dump，而前景又開始 dump。
+- 做法：前景要 dump 之前，先確認沒有背景指令還在跑（等它結束的通知，或 `ps -eo pid,command | grep -E 'ui.py|uitext.py'` 無輸出）。**逾時被移到背景的指令不會停，它會繼續對裝置送點擊與輸入**，和前景的操作交錯（實測：兩邊的 `input text` 交錯進同一個欄位）。
+- **確認方式**：`( python3 docs/qa-tools/uitext.py >/dev/null & python3 docs/qa-tools/uitext.py >/dev/null & wait )` 印出 `ABORT: dump failed: Killed`，接著 `adb logcat -d | grep -c 'Bad surrogate pair'` 回 `0`。*最後確認：2026-09-17*
 
 **畫面內容正在快速變動時（例如文字逐字出現），uiautomator dump 常常失敗或回傳幾乎沒有節點**（`ERROR: null root node returned by UiTestAutomationBridge`，或只剩少數固定節點）。這段期間不要靠 dump 找節點去點、也不要拿「dump 裡沒有」當判斷：
 - 要點的東西，在畫面靜止時先 dump 量好座標，變動期間用 `input tap` 座標；
@@ -488,6 +493,10 @@ adb shell input tap <該候選格中心>         # 從截圖量出來
 - 確認方式：送完之後逐碼位讀欄位（第 5 節），不要看截圖。
 
 *最後確認：2026-09-15（MOVE_HOME/MOVE_END + 空白、MOVE_HOME + FORWARD_DEL 刪字，逐碼位讀回皆符合送出的內容）*
+
+**emoji 可以從候選列送進欄位**：英文版面打完一個字加空白之後，候選列常常出現 emoji 建議；從截圖量出它的位置用 `input tap` 點，再逐碼位讀欄位確認（`input text` 送不出 emoji）。候選內容每次不同，位置與內容都要當場截圖。
+**多行輸入欄位裡 `input keyevent 66`（ENTER）可能插入換行而不是送出**；是哪一種由受測欄位決定，送完逐碼位讀欄位（看有沒有 `0xa`）。
+**確認方式**：焦點在一個多行欄位時送 `input text 'a'`、`input keyevent 66`、`input text 'b%s'`，截圖找候選列的 emoji 點下去，`ui.py field` 應看到 `0x61 0xa 0x62 0x20` 加上一個 emoji 碼位。*最後確認：2026-09-17*
 
 ### 6.5 剪貼簿
 
@@ -739,6 +748,7 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
    - `hashdir.sh`：列出 app 私有目錄下每個檔案的 sha256（排序過），操作前後各存一份再 diff。`docs/qa-tools/hashdir.sh selftest <套件名>` —— 會比對「雜湊行數 == 裝置端檔案數且不為 0」。*最後確認：2026-09-15*
    - `jsondir.py`：把 app 私有目錄下每個 JSON 檔 parse 後以排序過的正規形式列出（不能 parse 的改印 sha256）。**用途是回答「內容有沒有變」而不是「位元組有沒有變」** —— app 重新序列化同一份資料，位元組會不同而內容相同（見第 4 節「已知的位元組層面陷阱」）。操作前後各存一份再 `diff`。`python3 docs/qa-tools/jsondir.py selftest <套件名> <目錄>` 印出 `selftest OK: N json files listed` 才用。*最後確認：2026-09-16*
    - `sqlitepull.sh`：把 App 的 SQLite 資料庫（含 `-wal`/`-shm`）複製到主機（見第 4 節末）。`docs/qa-tools/sqlitepull.sh selftest <套件名> <資料庫相對路徑>`。*最後確認：2026-09-17*
+   - `sqlitecontent.py`：把主機上的 SQLite 複本（`sqlitepull.sh` 拉下來的）以唯讀方式開啟，每一列印成一行、排序過。操作前後各印一份再 `diff`，回答「儲存的內容有沒有變」。`python3 docs/qa-tools/sqlitecontent.py selftest` 印出 `selftest OK: 2 rows` 才用。*最後確認：2026-09-17*
    - `uitext.py`：一次列出畫面上每個文字節點的 `y0,y1`、`repr(text)` 與**逐碼位**（`U+xxxx`）。`ui.py field` 只看得到輸入框，這支看得到所有節點，判「某一列尾端是不是完整的字」「某段文字裡是不是全形空白」時不必再截圖。`python3 docs/qa-tools/uitext.py selftest` 印出 `selftest OK: N nodes` 才用；加一個參數只印含該子字串的節點。*最後確認：2026-09-16*
 
 4. **要在「只存在幾秒的狀態」裡動作時，把整串操作寫進同一個 `adb shell`**：`adb shell "input tap A; sleep 0.3; input tap B; sleep 0.9; input text '…'"`。貴的是主機↔裝置的來回（每次約 0.04 秒起跳，工具呼叫本身的額外開銷更大），裝置端的 `sleep` 幾乎免費。實測：同一串操作拆成 4 次 Bash 呼叫要 6–8 秒才走完，包在一個 `adb shell` 裡約 2.2 秒 —— 差別足以決定攔不攔得到一個短命狀態。
@@ -749,7 +759,11 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
    **確認方式**：批次的第一行先 `adb shell dumpsys window | grep -m1 mCurrentFocus`，再 dump 一次確認畫面上有你預期的那個節點，兩者都對才往下送。*最後確認：2026-09-16*
    - **不能用「跳過」來省**。腳本改過之後先跑它的確認方式 —— 腳本腐爛時會安靜地做錯事。
 
-6. **`ui.py texts` 只列有文字或描述的節點**：空的輸入框不在裡面。要確認輸入框在不在，用 `ui.py dump` 或 `ui.py field`。主機的 python 沒有 PIL，要拼圖或裁圖就改用逐張讀截圖。
+6. **要觀察「只存在幾秒的畫面訊息」時，觸發之後直接開始輪詢，不要先跑一個「等某件事結束」的輔助函式。** 那種函式本身常要 2–3 次 dump（每次約 2.5 秒）再加上保險的 sleep，跑完時暫態訊息可能已經消失，結果是「沒看到」被誤讀成「沒出現」。做法：觸發後立刻用 `adb shell date +%s%3N` 記時間，接著連續 dump N 次、每次印出時間與要判讀的那幾行，從輸出裡同時看出「狀態什麼時候到」與「訊息出現了多久」。
+   **確認方式**：每行印出的相對時間相鄰差約等於一次 dump 的耗時（量得出來就代表沒有被別的等待插隊）。*最後確認：2026-09-17*
+7. **會 force-stop 受測 App 的輔助腳本（例如快照）跑完之後，App 不在前景。** 下一步若是「輪詢畫面上的某個狀態」，它會在桌面上空等到逾時。接在這種腳本後面的第一步一律先 `am start`，再 `dumpsys window | grep -m1 mCurrentFocus` 確認。
+   **確認方式**：force-stop 後跑一次 `mCurrentFocus`，看到的是桌面的視窗。*最後確認：2026-09-17*
+8. **`ui.py texts` 只列有文字或描述的節點**：空的輸入框不在裡面。要確認輸入框在不在，用 `ui.py dump` 或 `ui.py field`。主機的 python 沒有 PIL，要拼圖或裁圖就改用逐張讀截圖。
    **確認方式**：輸入框為空時 `ui.py texts | grep EditText` 無輸出，`ui.py field` 印出 `'' []`。*最後確認：2026-09-17*
 
 *最後確認：2026-09-15（守衛自測印出 ABORT 且未執行後續；hashdir.sh selftest OK）。2026-09-17：ui.py / uitext.py selftest OK。*
