@@ -187,6 +187,9 @@ adb exec-out run-as $PKG ls -l files            # 先看大小
 adb exec-out run-as $PKG sh -c 'sha256sum files/*.<大檔副檔名>' > big.sha256   # 就地留基準
 ```
 
+**scratchpad 可能與先前某一輪是同一個路徑，裡面的子目錄可能已經有別輪的檔案**（`mkdir -p` 不會報錯）。建本輪子目錄之前先 `ls -A <子目錄>`，有輸出就換一個新名字，**不要讀裡面的東西**。
+**確認方式**：`ls -A <子目錄> | wc -l` 回 `0` 才開始用。*最後確認：2026-09-17*
+
 **快照**（放在本輪自己的 scratchpad 子目錄，**不要沿用 scratchpad 根目錄或別輪留下的目錄**；用 `exec-out` 而不是 `shell`，否則二進位/換行會被改寫）：
 
 ```sh
@@ -262,6 +265,14 @@ adb shell -n "rm -rf /data/local/tmp/qa"
 - 在裝置上把資料庫檔 `chmod 444` 時，Android 的開檔會直接失敗（`Could not open the database in read/write mode`），**連讀取也一起失敗**——它模擬的不是「只有寫入失敗」。要判讀這種前置下的結果，先想清楚它實際造出的是哪一種狀態。
 **確認方式**：`docs/qa-tools/sqlitepull.sh selftest PKG <資料庫相對路徑>` 印出 `selftest OK: N tables`。*最後確認：2026-09-17*
 
+**造「App 開不起來資料庫」的兩種權限前置**（App 停止時，用 `run-as` 改）：`chmod 444` 主檔與 `-wal`/`-shm`（只能讀）；`chmod 000` 主檔（連讀都不能讀）。改完要證明造法生效，不要假設：
+**確認方式**：`adb exec-out run-as $PKG sh -c 'cat <主檔> | head -c 16'` 在 `000` 時回 `Permission denied`；`ls -l` 看得到權限位元。收尾改回原本的權限（先 `ls -l` 記下原值），再 `ls -l` 讀回。*最後確認：2026-09-17*
+
+**把 /data 填滿（造「寫入失敗」）**：`fallocate` 在裝置上可用，比 `dd` 快得多。做法：`df /data` 問出剩餘 KB → `fallocate -l <剩餘-幾MB>K /data/local/tmp/<目錄>/fill1` → 再 `dd if=/dev/zero of=... bs=1M count=100` 把零頭填完（dd 會在 ENOSPC 停下）。
+- **系統在空間用完時會自己清掉各 App 的快取**，剩餘空間會在幾十秒內回升到數百 MB 以上 —— 填滿一次不代表之後一直是滿的。每次要依賴「滿」的那一刻之前重新 `df`，不夠就再填一次，而且要在填完之後**立刻**觸發要觀察的動作。
+- 收尾刪掉填充檔，`df` 讀回。
+**確認方式**：填完 `df /data | tail -1` 的可用欄是個位數 KB；隔 30 秒再問一次，看它有沒有回升。*最後確認：2026-09-17*
+
 ---
 
 ## 5. 讀畫面：用 UI tree，不要用肉眼猜座標
@@ -277,6 +288,17 @@ adb exec-out uiautomator dump /dev/tty
 **畫面上任何一個文字節點含有「落單的 UTF-16 代理字元」（例如被截斷切開的 emoji）時，uiautomator dump 會整個崩潰**：終端只印 `Killed`，`ui.py` 報 `ABORT: dump failed: Killed`，存到 `/sdcard` 的檔是 0 bytes。**這不是記憶體不足**，重試也一樣。
 - 做法：讓那個節點離開畫面（捲走、關掉面板、換畫面）再 dump；那個畫面上的判讀只能改用截圖。
 - **確認方式**：dump 失敗時跑 `adb logcat -d | grep -A2 'FATAL EXCEPTION' | grep 'Bad surrogate pair'`，有輸出就是這個原因；換到別的畫面後 `ui.py selftest` 恢復正常。*最後確認：2026-09-15*
+
+**畫面內容正在快速變動時（例如文字逐字出現），uiautomator dump 常常失敗或回傳幾乎沒有節點**（`ERROR: null root node returned by UiTestAutomationBridge`，或只剩少數固定節點）。這段期間不要靠 dump 找節點去點、也不要拿「dump 裡沒有」當判斷：
+- 要點的東西，在畫面靜止時先 dump 量好座標，變動期間用 `input tap` 座標；
+- 要判讀的東西用截圖。
+- **確認方式**：在一個持續變動的畫面上連做三次 `ui.py texts`，比對節點數與靜止時的差異。*最後確認：2026-09-17*
+
+**要量「某個畫面變化在幾秒後出現」**（例如按下之後多久出現第一個字）：把操作與連續截圖寫進同一個 `adb shell`，每張截圖後記一次裝置時間：
+`adb shell "t0=\$(date +%s%3N); input tap X Y; echo t0 \$t0 > /sdcard/<目錄>/times; for i in \$(seq 1 60); do screencap -p /sdcard/<目錄>/f\$i.png; echo f\$i \$(date +%s%3N) >> /sdcard/<目錄>/times; done"`
+再用 `stat -c %s` 列出每張的位元組數，大小跳動的那幾張才拉回主機看。模擬器上每張約 0.1 秒。
+- **裝置空間填滿時 `/sdcard` 也寫不進去**：這時改成主機端迴圈 `adb exec-out screencap -p > 本機檔`（每張約 0.12 秒加上工具呼叫的開銷）。
+- **確認方式**：跑一次，`times` 檔的相鄰時間差約 0.1 秒，截圖檔數等於迴圈次數。*最後確認：2026-09-17*
 
 建議做法：**先 dump、從 text 找到目標節點的 bounds、再算中心點去點**，不要把座標寫死在腳本或文件裡 —— 座標會過期，而**錯的座標比沒有座標更糟：它會讓人點到別的東西，然後以為自己驗過了**。
 
