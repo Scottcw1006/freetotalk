@@ -12,6 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
@@ -131,7 +132,16 @@ class LlmEngine private constructor(private val context: Context) {
             )
 
             awaitClose {
-                if (!finished.get()) runCatching { session.cancelGenerateResponseAsync() }
+                if (!finished.get()) {
+                    runCatching { session.cancelGenerateResponseAsync() }
+                    // Cancelling only asks. The native generation thread can still be
+                    // running when this returns, and the lock is released right after this
+                    // block — at which point a model switch closes the engine that thread
+                    // is still reading from, and the app dies in native code. So the
+                    // session is only closed, and the lock only released, once the
+                    // generation has actually ended.
+                    runCatching { future.get(CANCEL_WAIT_SECONDS, TimeUnit.SECONDS) }
+                }
                 runCatching { session.close() }
             }
         }
@@ -171,6 +181,9 @@ class LlmEngine private constructor(private val context: Context) {
 
     companion object {
         private const val TOP_K = 40
+
+        /** Far longer than a cancelled generation takes to wind down; only a hung engine hits it. */
+        private const val CANCEL_WAIT_SECONDS = 10L
 
         @Volatile
         private var instance: LlmEngine? = null

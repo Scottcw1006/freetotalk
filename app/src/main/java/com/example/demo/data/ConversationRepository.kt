@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -41,7 +42,13 @@ class ConversationRepository private constructor(context: Context) {
     private val marker = app.getSharedPreferences(MARKER_FILE, Context.MODE_PRIVATE)
     private val database = MutableStateFlow(open())
     private val resetting = Mutex()
-    private var automaticResetsLeft = 1
+    /**
+     * A fresh database that fails straight away will not be helped by another one, so a
+     * reset is only tried again once something has worked since the last one. That still
+     * lets a store that goes bad a second time, later in the same session, start over.
+     */
+    @Volatile
+    private var succeededSinceReset = true
 
     private val _wasReset = MutableStateFlow(false)
     /** True once the stored threads were found unreadable and discarded, until acknowledged. */
@@ -56,6 +63,7 @@ class ConversationRepository private constructor(context: Context) {
     val all: Flow<List<Conversation>> = database.flatMapLatest { db ->
         db.conversations().observeAll()
             .map(ConversationReader::all)
+            .onEach { succeededSinceReset = true }
             // Resetting swaps in a new database, which this flow then follows. If that
             // does not help either, the list stays as it last was rather than taking the
             // app down.
@@ -87,17 +95,18 @@ class ConversationRepository private constructor(context: Context) {
     private suspend fun <T> attempt(block: suspend (ConversationDatabase) -> T): Result<T> {
         val db = database.value
         val first = runCatchingUnlessCancelled { block(db) }
-        val error = first.exceptionOrNull() ?: return first
+        val error = first.exceptionOrNull() ?: return first.also { succeededSinceReset = true }
         if (!error.meansStoreIsUnreadable()) return first
         reset(db)
         return runCatchingUnlessCancelled { block(database.value) }
+            .onSuccess { succeededSinceReset = true }
     }
 
     private suspend fun reset(broken: ConversationDatabase) = resetting.withLock {
         // Someone else already replaced it while this caller was failing on the old one.
         if (database.value !== broken) return@withLock
-        if (automaticResetsLeft == 0) return@withLock
-        automaticResetsLeft--
+        if (!succeededSinceReset) return@withLock
+        succeededSinceReset = false
         withContext(Dispatchers.IO) {
             runCatching { broken.close() }
             app.deleteDatabase(ConversationDatabase.FILE_NAME)
@@ -151,14 +160,23 @@ class ConversationRepository private constructor(context: Context) {
 }
 
 /**
- * A corrupt file, a file that cannot be opened, or a database Room refuses to use (or
- * one that was closed underneath us after Android discarded it). Running out of space or
- * a read-only file are not in this list: the saved threads are still there.
+ * A corrupt file, a file that cannot be opened, a schema Room cannot use, or a database
+ * that was closed underneath us after Android discarded it as corrupt. Anything else —
+ * running out of space, a read-only file, any other failure — is not in this list,
+ * because resetting throws every saved thread away and those threads may be fine.
  */
 private fun Throwable.meansStoreIsUnreadable(): Boolean =
     this is SQLiteDatabaseCorruptException ||
         this is SQLiteCantOpenDatabaseException ||
-        this is IllegalStateException
+        (this is IllegalStateException && message.orEmpty().let { text ->
+            ROOM_SCHEMA_MISMATCH in text || CLOSED_BY_CORRUPTION_HANDLER in text
+        })
+
+/** Room's message for a file whose tables do not match what this build expects. */
+private const val ROOM_SCHEMA_MISMATCH = "Room cannot verify the data integrity"
+
+/** What Android's SQLite says when a connection it already closed is used again. */
+private const val CLOSED_BY_CORRUPTION_HANDLER = "attempt to re-open an already-closed object"
 
 private inline fun <T> runCatchingUnlessCancelled(block: () -> T): Result<T> =
     try {

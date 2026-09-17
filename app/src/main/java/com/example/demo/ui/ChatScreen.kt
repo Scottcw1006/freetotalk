@@ -143,6 +143,7 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
         drawerContent = {
             HistoryDrawer(
                 state = state,
+                isOpening = drawerState.targetValue == DrawerValue.Open,
                 onOpen = { id ->
                     viewModel.openThread(id)
                     scope.launch { drawerState.close() }
@@ -244,6 +245,7 @@ private fun statusLabel(state: ChatUiState): String {
 @Composable
 private fun HistoryDrawer(
     state: ChatUiState,
+    isOpening: Boolean,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
     onNewThread: () -> Unit,
@@ -322,7 +324,14 @@ private fun HistoryDrawer(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            LazyColumn {
+            // Rows are keyed, so the list holds on to whichever row was first on screen
+            // last time — and a thread that has just moved to the top lands above it, out
+            // of sight. Newest first is the whole point of the list, so it opens at the top.
+            val listState = rememberLazyListState()
+            LaunchedEffect(isOpening) {
+                if (isOpening) listState.scrollToItem(0)
+            }
+            LazyColumn(state = listState) {
                 items(state.history, key = { it.id }) { thread ->
                     HistoryRow(
                         thread = thread,
