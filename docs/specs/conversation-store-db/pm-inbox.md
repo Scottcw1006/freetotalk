@@ -1,5 +1,19 @@
 # PM 收件匣（對話儲存改為資料庫）
 
+## [2026-09-17] 使用者裁決：刪除 history-missing-after-switch 目錄，刪之前把指向它的引用改掉
+- 來源：使用者裁決
+- 內容：
+  - 使用者要刪掉 `docs/specs/history-missing-after-switch/`。conversation-search 那邊的引用已在它的 v3.25 改指本規格（commit 已在 main）。
+  - **本規格這一輪只改引用，不改任何規則或驗收要驗的性質，不跑 QA。**（使用者對 conversation-search 做了同樣的裁決，理由相同：只是文字整理。）
+  - 要處理的（RD grep 到的，請以現行版 v4 全部為準自己再查一次）：
+    1. `spec-appendix.md`「參考資料」直接寫著 `docs/specs/history-missing-after-switch/pm-inbox.md`、`findings.md`、`v1/spec.md` 的路徑 —— 目錄刪掉後會指不到。請改成讀者仍查得到的形式（例如標明「目錄已刪除，原文在 git：`git show <刪除前的 commit>:<路徑>`」；刪除前的 commit 用 `git rev-parse HEAD` 取得即可，RD 會在你處理完之後才刪）。
+    2. `spec-tasks.md`「明確不做」裡「刪除 `history-missing-after-switch` 目錄」那一條：觸發條件已成立，使用者已決定刪除，請寫成現況。
+    3. `spec-appendix.md` 裡「`conversation-search` v3.24 有兩處現行引用」這句說明已過期（v3.25 已改掉）。
+    4. 其他只是說明出處的地方（例如「H1–H4：外部代號，`history-missing-after-switch` v1 的四條正確行為」、附錄那一節的節名）由你判斷要不要動；**附錄那一節的節名被 conversation-search v3.25 引用了**，要改名的話先想清楚。
+  - **寫法**：`spec.md`、`spec-tasks.md` 不要新增版本標註，也不寫「上一輪發現了什麼」；改了哪裡只寫在 `changes-v5.md`，理由寫在附錄。
+- 相關條目：spec.md 代號索引；spec-tasks.md「明確不做」；spec-appendix.md 參考資料、吸收對照
+- 狀態：待處理
+
 ## [2026-09-17] QA 給 PM 的三點條文建議（v4 驗收，判定已通過，不擋完成）
 - 來源：QA 報告（`v4/test-report.md`；請直接讀原文）
 - 內容摘要：
