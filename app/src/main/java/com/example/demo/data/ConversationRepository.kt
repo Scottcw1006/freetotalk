@@ -5,7 +5,9 @@ import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.demo.chat.Author
 import com.example.demo.chat.Conversation
+import com.example.demo.chat.HistoryEntry
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -28,15 +31,17 @@ import kotlinx.coroutines.withContext
  *
  * It only knows what was saved. The open thread may never be saved, and a reply still
  * streaming in is not saved yet, so nothing that must show what the user can see —
- * search above all — reads from here alone. There is deliberately no query method.
+ * search above all — reads from here alone. It hands saved threads over; it never decides
+ * what matches.
  *
  * Three ways the store can let the user down, told apart by whether the saved threads
  * themselves are damaged:
- * - damaged (a corrupt file, a schema Room cannot use): thrown away, the store starts
- *   over, and [wasReset] says so once;
+ * - damaged (a corrupt file): thrown away, the store starts over, and [wasReset] says so
+ *   once;
  * - not openable, with nothing to show they are damaged (a read-only file, wrong
- *   permissions): left exactly as they are, and [cannotOpen] says so — the next launch
- *   simply tries again;
+ *   permissions, a schema version this build has no migration from, or one newer than
+ *   this build): left exactly as they are, and [cannotOpen] says so — the next launch,
+ *   or the next build, simply tries again;
  * - one write that does not go through: nothing is touched, and the caller is told.
  * When in doubt it is the second: throwing threads away cannot be undone.
  */
@@ -66,11 +71,11 @@ class ConversationRepository private constructor(context: Context) {
     /** True once the saved threads could not be opened this launch; they are still there. */
     val cannotOpen: StateFlow<Boolean> = _cannotOpen.asStateFlow()
 
-    /** Every readable saved thread, newest first, re-emitted whenever anything is written. */
+    /** One entry per saved thread that can be opened, newest first, re-emitted whenever anything is written. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val all: Flow<List<Conversation>> = database.flatMapLatest { db ->
-        db.conversations().observeAll()
-            .map(ConversationReader::all)
+    val history: Flow<List<HistoryEntry>> = database.flatMapLatest { db ->
+        db.conversations().observeHistory(Author.You.name, Author.entries.map { it.name })
+            .map { it.toHistory() }
             .onEach {
                 succeededSinceReset = true
                 _cannotOpen.value = false
@@ -83,8 +88,21 @@ class ConversationRepository private constructor(context: Context) {
     }
 
     suspend fun find(id: String): Conversation? = attempt { db ->
-        ConversationReader.find(db.conversations().byId(id), id)
+        ConversationReader.find(db.conversations().thread(id), id)
     }.getOrNull()
+
+    /**
+     * Every readable saved thread, newest first, a few at a time, so that going through
+     * all of them never means holding all of them. A batch that cannot be read is
+     * skipped; the rest still come.
+     */
+    fun savedThreads(): Flow<List<Conversation>> = flow {
+        val ids = attempt { db -> db.conversations().ids() }.getOrNull().orEmpty()
+        for (batch in ids.chunked(THREADS_PER_BATCH)) {
+            val threads = attempt { db -> ConversationReader.all(db.conversations().threads(batch)) }
+            emit(threads.getOrNull() ?: continue)
+        }
+    }
 
     /** False when the thread could not be written; whatever was saved before is untouched. */
     suspend fun save(conversation: Conversation): Boolean = attempt { db ->
@@ -128,8 +146,9 @@ class ConversationRepository private constructor(context: Context) {
 
     private fun open(): ConversationDatabase = Room
         .databaseBuilder(app, ConversationDatabase::class.java, ConversationDatabase.FILE_NAME)
-        .fallbackToDestructiveMigration(dropAllTables = true)
-        .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
+        // No destructive fallback in either direction: a version this build cannot get
+        // to fails to open, which leaves every thread where it is.
+        .addMigrations(*ConversationMigrations.all)
         .addCallback(StartOverDetector())
         .build()
 
@@ -137,7 +156,8 @@ class ConversationRepository private constructor(context: Context) {
      * Android's own handling of a corrupt database file is to delete it and quietly
      * create a new one, which Room goes along with. The only trace that leaves is a
      * database being created when one had been created before — so that is what is
-     * watched for, alongside Room's own drop-and-recreate on a schema it cannot use.
+     * watched for. A migration works on the file that is already there and never
+     * sets this off.
      *
      * The marker lives in its own preferences file and goes away with the app's data,
      * so a fresh install or cleared data never looks like a reset.
@@ -150,15 +170,12 @@ class ConversationRepository private constructor(context: Context) {
                 marker.edit().putBoolean(KEY_CREATED, true).commit()
             }
         }
-
-        override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
-            _wasReset.value = true
-        }
     }
 
     companion object {
         private const val MARKER_FILE = "conversation_store"
         private const val KEY_CREATED = "database_created"
+        private const val THREADS_PER_BATCH = 20
 
         @Volatile
         private var instance: ConversationRepository? = null

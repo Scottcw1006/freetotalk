@@ -119,8 +119,10 @@ fun SearchScreen(
         ) {
             val results = state.search.results
             when {
-                !state.search.isActive -> Notice("搜尋所有對話的訊息內容")
-                results.isEmpty() -> Notice("找不到符合「${state.search.query}」的訊息")
+                // Until a search has come back the screen stays as it was, which after an
+                // empty field is this line — never a "nothing found" nobody looked for.
+                !state.search.hasOutcome -> Notice("搜尋所有對話的訊息內容")
+                results.isEmpty() -> Notice("找不到符合「${state.search.searchedQuery}」的訊息")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item(key = "summary") {
                         Text(

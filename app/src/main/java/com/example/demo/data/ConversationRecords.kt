@@ -7,22 +7,13 @@ import com.example.demo.chat.ChatMessage
 import com.example.demo.chat.Conversation
 import com.example.demo.llm.ModelSpec
 import com.example.demo.persona.Persona
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
 
 /**
- * One thread as the database holds it: one row, with every message packed into
- * [messages] as a single JSON text.
- *
- * One row per thread is what keeps a save to a single statement. A save that took two —
- * clear the old messages, then write the new ones — would leave a moment in which a
- * reader finds the thread missing or half-written, which is exactly how threads used to
- * vanish from the history list when two saves of the same thread overlapped. Nothing
- * here needs to query individual messages: search runs over what is in memory.
+ * One thread as the database holds it: a row of its own facts here, and one row per
+ * message in [MessageRecord]. Nothing about a message lives anywhere but its own row.
  *
  * Every column is a plain string or number, so Room can always hand a row over. Whether
- * that row makes sense is decided afterwards by [ConversationReader], one row at a time.
+ * the rows make sense is decided afterwards by [ConversationReader], one thread at a time.
  */
 @Entity(tableName = "conversations")
 data class ConversationRecord(
@@ -31,12 +22,36 @@ data class ConversationRecord(
     val model: String,
     val createdAt: Long,
     val updatedAt: Long,
-    val messages: String,
+)
+
+/**
+ * One message. It is told apart by the thread it belongs to together with [id]: ids start
+ * again from 0 in every thread, so on their own they collide across threads.
+ *
+ * [position] is what puts a thread's messages in order. Ids the app hands out only ever
+ * grow, but a thread that reached the store from outside may number them any way it
+ * likes, and the order it was written in is the order it is shown in.
+ */
+@Entity(tableName = "messages", primaryKeys = ["conversationId", "id"])
+data class MessageRecord(
+    val conversationId: String,
+    val id: Long,
+    val position: Int,
+    val author: String,
+    val text: String,
+    val createdAt: Long,
+    val deleted: Boolean,
+)
+
+/** A thread's row together with its message rows, in order. */
+data class ThreadRecord(
+    val conversation: ConversationRecord,
+    val messages: List<MessageRecord>,
 )
 
 /** What one save amounts to once the rules about blank threads have been applied. */
 sealed interface SaveAction {
-    data class Write(val record: ConversationRecord) : SaveAction
+    data class Write(val record: ThreadRecord) : SaveAction
     data class Delete(val id: String) : SaveAction
 }
 
@@ -49,18 +64,33 @@ sealed interface SaveAction {
 fun Conversation.toSaveAction(): SaveAction =
     if (isBlank) SaveAction.Delete(id) else SaveAction.Write(toRecord())
 
-fun Conversation.toRecord(): ConversationRecord = ConversationRecord(
-    id = id,
-    persona = persona.name,
-    model = model.name,
-    createdAt = createdAt,
-    updatedAt = updatedAt,
-    messages = json.encodeToString(storedMessages, messages.map { it.toStored() }),
+// A message is only ever saved as "still streaming" by accident of timing; what is
+// stored is the text it held, never the typing indicator.
+fun Conversation.toRecord(): ThreadRecord = ThreadRecord(
+    conversation = ConversationRecord(
+        id = id,
+        persona = persona.name,
+        model = model.name,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    ),
+    messages = messages.mapIndexed { index, message ->
+        MessageRecord(
+            conversationId = id,
+            id = message.id,
+            position = index,
+            author = message.author.name,
+            text = message.text,
+            createdAt = message.createdAt,
+            deleted = message.deleted,
+        )
+    },
 )
 
 /**
- * The one reading rule, shared by "every thread" and "the thread with this id", so the
- * two can never disagree about whether a thread exists.
+ * The one reading rule, shared by every way of getting threads out of the store — all of
+ * them, the one with this id, a batch for searching — so they can never disagree about
+ * whether a thread exists.
  *
  * Text comes back exactly as it went in. Model output is repaired while it streams in,
  * before it is ever saved; repairing again on the way out would also rewrite what the
@@ -68,48 +98,31 @@ fun Conversation.toRecord(): ConversationRecord = ConversationRecord(
  */
 object ConversationReader {
 
-    /** Newest first. A row that cannot be read is left out, and only that row. */
-    fun all(records: List<ConversationRecord>): List<Conversation> =
+    /** Newest first. A thread that cannot be read is left out, and only that thread. */
+    fun all(records: List<ThreadRecord>): List<Conversation> =
         records.mapNotNull { it.toConversationOrNull() }.sortedByDescending { it.updatedAt }
 
-    fun find(records: List<ConversationRecord>, id: String): Conversation? =
+    fun find(records: List<ThreadRecord>, id: String): Conversation? =
         all(records).firstOrNull { it.id == id }
-
-    private fun ConversationRecord.toConversationOrNull(): Conversation? = runCatching {
-        Conversation(
-            id = id,
-            persona = Persona.of(persona),
-            model = ModelSpec.of(model),
-            createdAt = createdAt,
-            updatedAt = updatedAt,
-            messages = json.decodeFromString(storedMessages, messages).map { it.toMessage() },
-        )
-    }.getOrNull()
 }
 
-@Serializable
-private data class StoredMessage(
-    val id: Long,
-    val author: String,
-    val text: String,
-    val createdAt: Long,
-    // Left out of the JSON when false, so a row with nothing deleted looks exactly like
-    // one written before messages could be deleted — and those read back as not deleted.
-    val deleted: Boolean = false,
-)
+// The author is parsed here rather than by Room: one row from nobody we know would
+// otherwise fail the whole query it came back in, not just its own thread.
+private fun ThreadRecord.toConversationOrNull(): Conversation? = runCatching {
+    Conversation(
+        id = conversation.id,
+        persona = Persona.of(conversation.persona),
+        model = ModelSpec.of(conversation.model),
+        createdAt = conversation.createdAt,
+        updatedAt = conversation.updatedAt,
+        messages = messages.sortedBy { it.position }.map { it.toMessage() },
+    )
+}.getOrNull()
 
-// A message is only ever saved as "still streaming" by accident of timing; what is
-// stored is the text it held, never the typing indicator.
-private fun ChatMessage.toStored() = StoredMessage(id, author.name, text, createdAt, deleted)
-
-private fun StoredMessage.toMessage() = ChatMessage(
+private fun MessageRecord.toMessage() = ChatMessage(
     id = id,
     author = Author.valueOf(author),
     text = text,
     createdAt = createdAt,
     deleted = deleted,
 )
-
-private val storedMessages = ListSerializer(StoredMessage.serializer())
-
-private val json = Json

@@ -89,7 +89,7 @@ import com.example.demo.chat.Author
 import com.example.demo.chat.ChatMessage
 import com.example.demo.chat.ChatUiState
 import com.example.demo.chat.ChatViewModel
-import com.example.demo.chat.Conversation
+import com.example.demo.chat.HistoryEntry
 import com.example.demo.chat.EngineStatus
 import com.example.demo.chat.MessageAction
 import com.example.demo.chat.clipboardText
@@ -366,7 +366,7 @@ private fun HistoryDrawer(
 }
 
 @Composable
-private fun HistoryRow(thread: Conversation, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun HistoryRow(thread: HistoryEntry, onOpen: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

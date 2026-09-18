@@ -13,10 +13,12 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.update
@@ -58,10 +60,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * exactly one place they can be computed and no way for a state change to forget to
      * recompute them. Deleting a thread or streaming a reply in changes what matches, and
      * neither of those goes anywhere near the search code.
+     *
+     * The open thread is searched as it stands in memory — it may not be saved yet, it
+     * may never be, and a reply still streaming in exists nowhere else at all. Every
+     * other thread is read from the store for the search and let go of afterwards.
      */
-    val uiState: StateFlow<ChatUiState> = _uiState
-        .map { it.withSearchResults() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, _uiState.value.withSearchResults())
+    private val searchOutcome: StateFlow<SearchOutcome> = searchOutcomes(
+        query = _uiState.map { it.search.query }.distinctUntilChanged(),
+        open = _uiState.map { it.conversation }.distinctUntilChanged(),
+        // A store that cannot be opened never reports a change, and the open thread
+        // still has to be searchable then.
+        storeChanges = repository.history.onStart { emit(emptyList()) },
+        savedThreads = repository::savedThreads,
+    ).stateIn(viewModelScope, SharingStarted.Eagerly, SearchOutcome())
+
+    val uiState: StateFlow<ChatUiState> = combine(_uiState, searchOutcome) { state, outcome ->
+        state.withSearchOutcome(outcome)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, _uiState.value)
 
     private var replyJob: Job? = null
     private var loadJob: Job? = null
@@ -83,7 +98,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val openId = _uiState.map { it.conversation.id }.distinctUntilChanged()
-            historyOf(repository.all, openId).collect { history ->
+            historyOf(repository.history, openId).collect { history ->
                 _uiState.update { state ->
                     // Filtered once more against the thread open right now, in case it
                     // changed after this list was worked out; the next list follows anyway.
@@ -216,15 +231,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Matching runs over what is in memory, never over what reached the disk. The open
-     * thread may not be saved yet — it may never be, if the user has not written in it —
-     * and a reply still streaming in exists nowhere else at all.
+     * An empty field shows no results from the moment it is empty, whatever search may
+     * still be on its way back.
      */
-    private fun ChatUiState.withSearchResults(): ChatUiState = when {
+    private fun ChatUiState.withSearchOutcome(outcome: SearchOutcome): ChatUiState = when {
         !search.isActive ->
-            if (search.results.isEmpty()) this else copy(search = search.copy(results = emptyList()))
+            if (search.results.isEmpty() && search.searchedQuery.isEmpty()) this
+            else copy(search = search.copy(results = emptyList(), searchedQuery = ""))
         else ->
-            copy(search = search.copy(results = searchConversations(search.query, allThreads)))
+            copy(search = search.copy(results = outcome.results, searchedQuery = outcome.query))
     }
 
     private fun rememberSession() {

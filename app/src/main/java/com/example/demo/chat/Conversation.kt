@@ -40,19 +40,37 @@ val ChatMessage.longPressActions: Set<MessageAction>
 val ChatMessage.clipboardText: String
     get() = text
 
+/** Anything that stands for one thread, whole or not. */
+interface HasThreadId {
+    val id: String
+}
+
+/**
+ * One row of the history list: what it shows of a saved thread, and nothing else of it.
+ * The thread itself is read when it is opened.
+ */
+data class HistoryEntry(
+    override val id: String,
+    val persona: Persona,
+    val model: ModelSpec,
+    val updatedAt: Long,
+    val title: String,
+    val preview: String,
+) : HasThreadId
+
 /**
  * One chat thread. A conversation is bound to both the persona and the model it was
  * started with — switching either begins a new one, so a thread never mixes two voices
  * or two models, and the history list can honestly label what produced each answer.
  */
 data class Conversation(
-    val id: String,
+    override val id: String,
     val persona: Persona,
     val model: ModelSpec,
     val createdAt: Long,
     val updatedAt: Long,
     val messages: List<ChatMessage>,
-) {
+) : HasThreadId {
     /**
      * Threads are named after whatever the user opened with — of what is still there.
      * A thread whose every line from the user was deleted is not one they never spoke in,
@@ -137,7 +155,7 @@ enum class StorageNotice(val message: String) {
 
 data class ChatUiState(
     val conversation: Conversation,
-    val history: List<Conversation> = emptyList(),
+    val history: List<HistoryEntry> = emptyList(),
     val availableModels: List<ModelSpec> = emptyList(),
     val status: EngineStatus = EngineStatus.Extracting(0f),
     val isReplying: Boolean = false,
@@ -148,23 +166,4 @@ data class ChatUiState(
     val historyUnavailable: Boolean = false,
 ) {
     val canSend: Boolean get() = status is EngineStatus.Ready && !isReplying
-
-    /**
-     * [history] leaves out the open thread on purpose, which is right for a list that
-     * claims to say how many threads exist — but it means "all of them" is a thing the
-     * app cannot otherwise say. Search is the first caller that needs it, and the open
-     * thread is the one most likely to be searched for.
-     *
-     * This is a merge of two sources that can in principle describe the same thread:
-     * [history] is what was saved, [conversation] is the live one. The history list
-     * leaves the open thread out, but it is worked out separately from the switch that
-     * changes which thread is open, so for a moment the two can overlap. So the open
-     * thread goes first and the merge de-duplicates: when the same thread does arrive
-     * twice, the right one to keep is the in-memory copy, because it may hold messages
-     * that were never saved, or a reply still streaming in. What was saved is never newer.
-     */
-    val allThreads: List<Conversation>
-        get() = (listOf(conversation) + history)
-            .distinctBy { it.id }
-            .sortedByDescending { it.updatedAt }
 }

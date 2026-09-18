@@ -11,10 +11,11 @@ import com.example.demo.chat.longPressActions
 import com.example.demo.chat.searchConversations
 import com.example.demo.chat.withMessageDeleted
 import com.example.demo.data.ConversationReader
-import com.example.demo.data.ConversationRecord
+import com.example.demo.data.LegacyThreadRow
 import com.example.demo.data.SaveAction
 import com.example.demo.data.toRecord
 import com.example.demo.data.toSaveAction
+import com.example.demo.data.toThreadRecordOrNull
 import com.example.demo.llm.ModelSpec
 import com.example.demo.llm.Turn
 import com.example.demo.persona.Persona
@@ -285,7 +286,7 @@ class MessageDeletionTest {
     /** The row is written out by hand in the shape the app stored before messages could be deleted. */
     @Test
     fun `a thread stored before messages could be deleted reads back with nothing deleted`() {
-        val row = ConversationRecord(
+        val row = LegacyThreadRow(
             id = "old",
             persona = Persona.Teacher.name,
             model = ModelSpec.Qwen05B.name,
@@ -297,7 +298,9 @@ class MessageDeletionTest {
         )
         val expected = thread(them(0, "嗨"), you(1, "第一行\n第二行"), them(2, "講到一半…（已停止）"), id = "old")
 
-        assertEquals(expected, ConversationReader.find(listOf(row), "old"))
-        assertEquals(listOf(expected), ConversationReader.all(listOf(row)))
+        val carriedOver = listOfNotNull(row.toThreadRecordOrNull())
+
+        assertEquals(expected, ConversationReader.find(carriedOver, "old"))
+        assertEquals(listOf(expected), ConversationReader.all(carriedOver))
     }
 }

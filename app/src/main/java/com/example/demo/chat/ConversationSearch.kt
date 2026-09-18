@@ -47,6 +47,11 @@ data class ConversationHits(
 data class SearchUiState(
     val query: String = "",
     val results: List<ConversationHits> = emptyList(),
+    /**
+     * The query [results] are for. It trails [query] while the field is still being typed
+     * in, and what the screen says about the results has to be said about this one.
+     */
+    val searchedQuery: String = "",
 ) {
     /**
      * The same flattening the matching uses, rather than [String.isBlank], so that
@@ -54,10 +59,16 @@ data class SearchUiState(
      * into two different answers. A test can only tell you once they have; sharing the
      * function means they cannot.
      */
-    val isActive: Boolean get() = query.flattenToLine().isNotEmpty()
+    val isActive: Boolean get() = query.isSearchable
+
+    /** False until the first search since the field was last empty has come back. */
+    val hasOutcome: Boolean get() = isActive && searchedQuery.isSearchable
     val matchedConversationCount: Int get() = results.size
     val matchedMessageTotal: Int get() = results.sumOf { it.matchedMessageCount }
 }
+
+/** Whether there is anything left of a query to match with once it has been flattened. */
+internal val String.isSearchable: Boolean get() = flattenToLine().isNotEmpty()
 
 /**
  * Every message of every conversation is searchable, including the persona's opening

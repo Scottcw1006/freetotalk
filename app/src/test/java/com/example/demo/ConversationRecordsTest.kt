@@ -15,11 +15,11 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The rules that sit between a thread and its database row, tested without a database:
- * what goes in comes back out untouched, a row that cannot be read costs only itself,
+ * The rules that sit between a thread and its database rows, tested without a database:
+ * what goes in comes back out untouched, a thread that cannot be read costs only itself,
  * and a thread nobody wrote in is removed rather than stored.
  *
- * What these cannot see is the database end — whether the row itself was kept intact.
+ * What these cannot see is the database end — whether the rows themselves were kept intact.
  * That half is only checked on a device.
  */
 class ConversationRecordsTest {
@@ -52,6 +52,8 @@ class ConversationRecordsTest {
             ChatMessage(5, Author.Assistant, "長".repeat(2_048), createdAt = 16L),
             ChatMessage(6, Author.Assistant, "講到一半…（已停止）", createdAt = 17L),
             ChatMessage(7, Author.Assistant, "", createdAt = 18L),
+            ChatMessage(8, Author.You, "收回的\n這句", createdAt = 19L, deleted = true),
+            ChatMessage(9, Author.Assistant, "收回的回覆…（已停止）", createdAt = 20L, deleted = true),
         )
         val rows = listOf(original.toRecord())
 
@@ -76,26 +78,42 @@ class ConversationRecordsTest {
     }
 
     @Test(timeout = 5_000)
-    fun `a row that cannot be read is dropped alone, and both reads agree about it`() {
+    fun `a thread that cannot be read is dropped alone, and both reads agree about it`() {
         val e = thread("e", ChatMessage(0, Author.You, "e", createdAt = 1L), updatedAt = 3_000L)
         val f = thread("f", ChatMessage(0, Author.You, "f", createdAt = 1L), updatedAt = 1_000L)
-        val unknownAuthor = e.toRecord().copy(
-            id = "x-author",
-            messages = """[{"id":0,"author":"Robot","text":"?","createdAt":1}]""",
-        )
-        val notJson = e.toRecord().copy(id = "x-garbage", messages = "this is not a message list")
-        val rows = listOf(unknownAuthor, e.toRecord(), notJson, f.toRecord())
+        val unknownAuthor = thread(
+            "x-author",
+            ChatMessage(0, Author.You, "fine", createdAt = 1L),
+            ChatMessage(1, Author.Assistant, "?", createdAt = 2L),
+            updatedAt = 9_000L,
+        ).toRecord().let { record ->
+            record.copy(messages = record.messages.map { if (it.id == 1L) it.copy(author = "Robot") else it })
+        }
+        val rows = listOf(unknownAuthor, e.toRecord(), f.toRecord())
 
         val all = ConversationReader.all(rows)
 
         assertEquals(listOf(e, f), all)
         assertNull(ConversationReader.find(rows, "x-author"))
-        assertNull(ConversationReader.find(rows, "x-garbage"))
         assertEquals(e, ConversationReader.find(rows, "e"))
+        assertEquals(f, ConversationReader.find(rows, "f"))
         assertNull(ConversationReader.find(rows, "never-existed"))
-        for (id in listOf("x-author", "x-garbage", "e", "f", "never-existed")) {
+        for (id in listOf("x-author", "e", "f", "never-existed")) {
             assertEquals(id, all.firstOrNull { it.id == id }, ConversationReader.find(rows, id))
         }
+    }
+
+    @Test
+    fun `messages read back in the order they were stored in, whatever their ids say`() {
+        val original = thread(
+            "order",
+            ChatMessage(5, Author.You, "先說的", createdAt = 1L),
+            ChatMessage(3, Author.Assistant, "後說的", createdAt = 2L),
+        )
+        // Handed over the way a query with no ORDER BY might: last row first.
+        val shuffled = original.toRecord().let { it.copy(messages = it.messages.reversed()) }
+
+        assertEquals(original, ConversationReader.find(listOf(shuffled), "order"))
     }
 
     @Test
@@ -135,7 +153,7 @@ class ConversationRecordsTest {
         val record: ConversationRecord = thread(
             "names",
             ChatMessage(0, Author.You, "a", createdAt = 1L),
-        ).toRecord()
+        ).toRecord().conversation
 
         assertEquals("names", record.id)
         assertEquals(Persona.Teacher.name, record.persona)

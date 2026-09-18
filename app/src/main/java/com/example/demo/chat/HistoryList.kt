@@ -14,9 +14,9 @@ import kotlinx.coroutines.flow.combine
  * The open thread is left out because it already lives in [ChatUiState.conversation];
  * listing it twice would be a lie about how many threads exist.
  */
-fun historyOf(
-    stored: Flow<List<Conversation>>,
+fun <T : HasThreadId> historyOf(
+    stored: Flow<List<T>>,
     openId: Flow<String>,
-): Flow<List<Conversation>> = combine(stored, openId) { all, open ->
+): Flow<List<T>> = combine(stored, openId) { all, open ->
     all.filterNot { it.id == open }
 }

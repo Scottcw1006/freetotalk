@@ -284,57 +284,6 @@ class ConversationTest {
         assertFalse(state.canSend)
     }
 
-    // ---- allThreads ----------------------------------------------------------
-
-    @Test
-    fun `all threads includes the open one`() {
-        val open = thread(said("開啟中"), id = "open")
-        val state = ChatUiState(open, history = listOf(thread(said("歷史"), id = "old")))
-
-        assertEquals(setOf("open", "old"), state.allThreads.map { it.id }.toSet())
-    }
-
-    @Test
-    fun `all threads are ordered newest content first`() {
-        val open = thread(said("開啟中"), id = "open", updatedAt = 200L)
-        val older = thread(said("舊"), id = "older", updatedAt = 100L)
-        val newer = thread(said("新"), id = "newer", updatedAt = 300L)
-        val state = ChatUiState(open, history = listOf(older, newer))
-
-        assertEquals(listOf("newer", "open", "older"), state.allThreads.map { it.id })
-    }
-
-    /**
-     * The same id arriving twice is what a list keyed by id cannot survive. Today the two
-     * sources never overlap, but that holds only because of the order two state updates
-     * happen in — which the next person to touch thread switching would not know they
-     * were relying on.
-     */
-    @Test
-    fun `the same thread arriving twice appears once`() {
-        val open = thread(said("A"), said("B"), id = "same")
-        val stale = thread(said("A"), id = "same")
-        val state = ChatUiState(open, history = listOf(stale))
-
-        assertEquals(1, state.allThreads.size)
-        assertEquals(2, state.allThreads.single().messages.size)
-    }
-
-    /**
-     * The saved copy can carry a newer timestamp than the live one — it is written by a
-     * different path. The live copy still wins, because it may hold messages that were
-     * never saved or a reply still streaming in. De-duplicating after sorting would pick
-     * the wrong one, and this is the only test that separates the two orders.
-     */
-    @Test
-    fun `the in-memory copy wins even when the saved one looks newer`() {
-        val open = thread(said("A"), said("B"), id = "same", updatedAt = 100L)
-        val savedLooksNewer = thread(said("A"), id = "same", updatedAt = 900L)
-        val state = ChatUiState(open, history = listOf(savedLooksNewer))
-
-        assertEquals(2, state.allThreads.single().messages.size)
-    }
-
     // ---- hasSameContentAs ----------------------------------------------------
 
     /**

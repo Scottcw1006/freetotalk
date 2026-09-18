@@ -270,44 +270,6 @@ class ConversationSearchTest {
         assertEquals(emptyList<Char>(), disagreeing)
     }
 
-    @Test
-    fun `allThreads keeps the in-memory copy when a thread arrives twice`() {
-        val open = thread(said("第一句"), said("第二句"), id = "same", updatedAt = 500L)
-        val stale = thread(said("第一句"), id = "same", updatedAt = 500L)
-        val state = ChatUiState(conversation = open, history = listOf(stale))
-        val merged = state.allThreads.filter { it.id == "same" }
-        assertEquals(1, merged.size)
-        assertEquals(2, merged.single().messages.size)
-    }
-
-    @Test
-    fun `the in-memory copy wins even when the saved one looks newer`() {
-        // The disk is never newer: that timestamp belongs to a version with less in it.
-        // Unreachable from the UI — the history list already filters out the open thread —
-        // so this is the only place the merge contract is held (spec §3.5).
-        val first = said("北京 A")
-        val second = said("北京 B")
-        val open = thread(first, second, id = "same", updatedAt = 100L)
-        val savedLooksNewer = thread(first, id = "same", updatedAt = 900L)
-        val other = thread(said("北京 C"), id = "other", updatedAt = 500L)
-        val state = ChatUiState(conversation = open, history = listOf(savedLooksNewer, other))
-
-        val results = searchConversations("北京", state.allThreads)
-
-        // The ordering half matters as much as which copy survived: "sort first, then
-        // drop duplicates" keeps the saved one, puts `same` first, and reports one hit.
-        assertEquals(listOf("other", "same"), results.map { it.conversation.id })
-        assertEquals(2, results.last().matchedMessageCount)
-    }
-
-    @Test
-    fun `allThreads contains the open thread even when it is blank`() {
-        val blank = threadWithOpener(Persona.Sibling, id = "blank", updatedAt = 900L)
-        val older = thread(said("舊的"), id = "older", updatedAt = 100L)
-        val state = ChatUiState(conversation = blank, history = listOf(older))
-        assertEquals(listOf("blank", "older"), state.allThreads.map { it.id })
-    }
-
     // ---- what the query field is allowed to keep -----------------------------
 
     @Test
