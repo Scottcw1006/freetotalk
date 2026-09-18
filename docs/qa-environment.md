@@ -767,3 +767,22 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
    **確認方式**：輸入框為空時 `ui.py texts | grep EditText` 無輸出，`ui.py field` 印出 `'' []`。*最後確認：2026-09-17*
 
 *最後確認：2026-09-15（守衛自測印出 ABORT 且未執行後續；hashdir.sh selftest OK）。2026-09-17：ui.py / uitext.py selftest OK。*
+
+---
+
+## 14. 2026-09-18 補記（剪貼簿 UI 路、彈出選單、清欄位、建置舊版）
+
+- **App 把文字放進剪貼簿之後，系統會在畫面左下角浮出一張剪貼簿預覽卡（含分享鈕），停留數秒，期間它會蓋住底部的輸入欄位並吃掉點擊與長按。** 症狀是「長按欄位沒有跳出 Paste」「貼上後欄位仍是空的」，很容易被誤讀成受測程式沒有把字放進剪貼簿。做法：複製之後先 `adb shell sleep 8` 再去操作底部的欄位；不確定就截一張圖看卡片還在不在。
+  **確認方式**：複製後 1 秒內截圖，左下角看得到那張卡；8 秒後再截一張，卡片消失。*最後確認：2026-09-18*
+- **貼上的順序**：先點欄位取得焦點 → 長按欄位（鍵盤這時才可能彈出、版面會往上擠）→ **重新 dump 一次欄位的 bounds** → 點欄位上緣上方約 40 px、左緣往右約 100 px 的「Paste」。長按之前量的座標在鍵盤彈出後就過期了。「Paste」的位置仍以截圖為準。
+  **確認方式**：貼上後 `ui.py field` 讀回非空；讀回是空的就截圖看 Paste 工具列實際在哪。*最後確認：2026-09-18*
+- **用 BACK 收掉鍵盤之後，再點同一個（仍持有焦點的）輸入欄位，鍵盤不一定會再彈出**；長按欄位會。需要鍵盤時問 `mInputShown`，不要假設點了就有。
+  **確認方式**：`input keyevent 4` 收鍵盤 → 點欄位 → `dumpsys input_method | grep -m1 mInputShown`。*最後確認：2026-09-18*
+- **畫面上有彈出式選單（popup window）時，uiautomator dump 只列出那個選單視窗的節點**，後面主畫面的節點不在裡面。好處：要判「選單上恰好有哪幾項」時，dump 裡的文字節點就是全部；壞處：選單開著時找不到主畫面的任何節點。關掉選單（點選單以外的地方）之後再 dump 主畫面。
+  **確認方式**：選單開著時 `ui.py texts` 的行數遠少於關掉之後。*最後確認：2026-09-18*
+- **一次清空輸入欄位（不論多長）**：`adb shell input keycombination 113 29`（CTRL+A）接 `adb shell input keyevent 67`。比連送 DEL 快，幾千字也一次清掉。
+  **確認方式**：清完 `ui.py field` 印出 `'' []`。*最後確認：2026-09-18*
+- **`input text` 送幾千個字元**：拆成每次約 500 字元的幾段連送，送完逐碼位讀欄位確認長度，以讀回的內容當「實際送出的內容」。*最後確認：2026-09-18（3,010 字元無掉字）*
+- **需要用某個舊 commit 建置一份 APK、又不能在專案工作區切版本時**：`git clone <專案根> <scratchpad 子目錄>` → `git checkout <commit>`。**clone 不會帶出被 .gitignore 排除的檔案**（`local.properties`、被忽略的大型資產檔），少了它們建置會失敗或建出缺資產的 APK：`local.properties` 用 `cp`，大檔用 `cp -c`（APFS clonefile，瞬間完成、不佔額外空間）。兩份 APK 簽章相同（同一台機器的 debug key）、versionCode 相同時，`adb install -r -t` 可以來回覆蓋安裝而不清資料。
+  **確認方式**：`git -C <clone> rev-parse --short HEAD` 是指定的 commit；`git -C <專案根> status --porcelain` 前後不變；安裝輸出含 `Success`。*最後確認：2026-09-18*
+- **scratchpad 根目錄可能留著別輪的檔案**（本輪開始時就有）。一律只用自己新建、`ls -A | wc -l` 為 0 的子目錄，不讀根目錄下既有的檔。*最後確認：2026-09-18*
