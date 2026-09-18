@@ -786,3 +786,26 @@ HC=$(find ~/.gradle/caches -name 'hamcrest-core-*.jar' | grep -vE 'sources|javad
 - **需要用某個舊 commit 建置一份 APK、又不能在專案工作區切版本時**：`git clone <專案根> <scratchpad 子目錄>` → `git checkout <commit>`。**clone 不會帶出被 .gitignore 排除的檔案**（`local.properties`、被忽略的大型資產檔），少了它們建置會失敗或建出缺資產的 APK：`local.properties` 用 `cp`，大檔用 `cp -c`（APFS clonefile，瞬間完成、不佔額外空間）。兩份 APK 簽章相同（同一台機器的 debug key）、versionCode 相同時，`adb install -r -t` 可以來回覆蓋安裝而不清資料。
   **確認方式**：`git -C <clone> rev-parse --short HEAD` 是指定的 commit；`git -C <專案根> status --porcelain` 前後不變；安裝輸出含 `Success`。*最後確認：2026-09-18*
 - **scratchpad 根目錄可能留著別輪的檔案**（本輪開始時就有）。一律只用自己新建、`ls -A | wc -l` 為 0 的子目錄，不讀根目錄下既有的檔。*最後確認：2026-09-18*
+
+---
+
+## 15. 2026-09-18 補記（clone 建置的資產目錄、唯讀開 WAL 複本、快速連打、深色模式、清欄位）
+
+- **clone 出來的專案裡，「整個目錄的檔案都被 .gitignore 排除」的那個目錄根本不存在**，`cp -c <大檔> <clone>/<那個目錄>/` 會回 `clonefile failed: No such file or directory`，而建置照樣成功、產出一份**缺資產的小 APK**。先 `mkdir -p` 再複製；建完拿 APK 大小與專案工作區建出來的那份比。
+  **確認方式**：`ls -la <clone>/…/outputs/apk/debug/*.apk` 的位元組數與工作區那份同一個量級（差幾十個位元組是正常的）；`git -C <clone> status --porcelain` 不因為放了被忽略的檔而變髒。*最後確認：2026-09-18*
+- **`sqlitecontent.py`（以及任何 `file:…?mode=ro` 的開法）開不了「WAL 模式、但旁邊沒有可用 `-shm`／`-wal`」的複本**，錯誤是 `unable to open database file`——App 這一次啟動根本沒把資料庫打開時，裝置上就只有主檔，拉下來正是這種狀態。做法：把複本再複製一份到暫存目錄，用一般（可寫）連線開那一份；原本那份複本不動。
+  **確認方式**：對同一個目錄，`python3 -c "import sqlite3;sqlite3.connect('file:X/主檔?mode=ro',uri=True).execute('select 1 from sqlite_master')"` 失敗、而對暫存複本 `sqlite3.connect('暫存/主檔')` 成功。*最後確認：2026-09-18*
+- **主機端 `sqlite3` 改完要推回裝置之前，先 `PRAGMA wal_checkpoint(TRUNCATE);`**，確定內容都在主檔裡，再只推主檔、刪掉裝置上的 `-wal`／`-shm`（第 4 節末）。
+  **確認方式**：checkpoint 後主機上的 `-wal` 是 0 bytes；推回後再拉一次，查得到剛寫的那一列。*最後確認：2026-09-18*
+- **要「不停頓地連打幾個鍵」**：`adb shell input keyevent 36 33 40 40 43`（一個指令帶多個 keycode，依序送出，整串遠快於逐個 `input text`）。字母的 keycode 是 `29 + (字母序 − 1)`（a=29）。只在英文版面有意義。
+  **確認方式**：送完 `ui.py field` 讀回的字串與預期相同。*最後確認：2026-09-18*
+- **在同一個 `adb shell "…"` 裡的 `input tap` 幾乎不花時間（量到約 20 毫秒）**，所以批次裡兩個動作的間隔完全由你寫的 `sleep` 決定；別把「input 自己會慢」算進去。
+  **確認方式**：`adb shell "date +%s%3N; input tap 1 1; date +%s%3N"` 兩個數字相減。*最後確認：2026-09-18*
+- **深色模式**：`adb shell cmd uimode night` 問現值，`cmd uimode night yes`／`no` 切換；切換會讓前景 Activity 重建，等 1–2 秒再截圖。收尾改回原值並讀回。
+  **確認方式**：切換後 `cmd uimode night` 印出的值改變。*最後確認：2026-09-18*
+- **「CTRL+A 再 DEL」清欄位偶爾會失敗（只刪掉一個字），而且不報錯**——接著打的字會插進殘留的內容裡，整條測資就髒了。清完一定逐碼位讀回是空的，不是就重做；送出任何測資之前也先讀一次欄位是不是空的。
+  **確認方式**：清完 `ui.py field` 印出 `'' []`。*最後確認：2026-09-18*
+- **用「畫面上有沒有某段字」當等待條件時，那段字要挑受測內容不可能出現的整句**；用兩三個字的子字串去比，模型或使用者的訊息裡剛好有那幾個字時，等待會永遠不結束（或永遠立刻結束）。
+  **確認方式**：把等待條件對一個「內容含那幾個字、但狀態其實已經到了」的畫面跑一次，看它回不回得來。*最後確認：2026-09-18*
+- **要量「動作之後多久畫面開始變」**：同一個 `adb shell` 裡動作之後接 `for i in $(seq 1 N); do screencap -p …/f$i.png; echo f$i $(date +%s%3N) $(stat -c %s …/f$i.png); done`，直接從輸出的位元組數看第幾張開始變，不必把圖拉回主機。收尾刪掉裝置上的目錄。
+  **確認方式**：輸出的相鄰時間差約 0.1 秒。*最後確認：2026-09-18*
