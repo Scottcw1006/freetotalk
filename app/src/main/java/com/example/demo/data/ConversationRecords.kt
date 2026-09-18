@@ -93,17 +93,21 @@ private data class StoredMessage(
     val author: String,
     val text: String,
     val createdAt: Long,
+    // Left out of the JSON when false, so a row with nothing deleted looks exactly like
+    // one written before messages could be deleted — and those read back as not deleted.
+    val deleted: Boolean = false,
 )
 
 // A message is only ever saved as "still streaming" by accident of timing; what is
 // stored is the text it held, never the typing indicator.
-private fun ChatMessage.toStored() = StoredMessage(id, author.name, text, createdAt)
+private fun ChatMessage.toStored() = StoredMessage(id, author.name, text, createdAt, deleted)
 
 private fun StoredMessage.toMessage() = ChatMessage(
     id = id,
     author = Author.valueOf(author),
     text = text,
     createdAt = createdAt,
+    deleted = deleted,
 )
 
 private val storedMessages = ListSerializer(StoredMessage.serializer())

@@ -8,7 +8,6 @@ import com.example.demo.data.SessionPreferences
 import com.example.demo.llm.LlmEngine
 import com.example.demo.llm.ModelSpec
 import com.example.demo.llm.ModelStore
-import com.example.demo.llm.Turn
 import com.example.demo.persona.Persona
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
@@ -272,12 +271,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (prompt.isEmpty() || !_uiState.value.canSend) return
 
         val thread = _uiState.value.conversation
-        // Context is everything already said, up to but not including this message.
-        // Leading assistant turns are dropped: the persona's opener is scene-setting,
-        // not something the model needs to see replayed as dialogue.
-        val context = thread.messages
-            .map { Turn(fromUser = it.author == Author.You, text = it.text) }
-            .dropWhile { !it.fromUser }
+        // Everything already said, up to but not including this message.
+        val context = thread.contextForNextTurn()
 
         val nextId = (thread.messages.maxOfOrNull { it.id } ?: -1L) + 1
         val replyId = nextId + 1
@@ -402,6 +397,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             persist(stopped)
         }
+    }
+
+    // ---- deleting ------------------------------------------------------------
+
+    fun deleteMessage(id: Long) = setMessageDeleted(id, deleted = true)
+
+    fun restoreMessage(id: Long) = setMessageDeleted(id, deleted = false)
+
+    /**
+     * Saved on the spot, through the same door as every other save: nothing else is
+     * bound to happen after a delete, so there is no later save for it to ride along
+     * with. A thread nobody wrote in is still not stored — [persist] sees to that.
+     */
+    private fun setMessageDeleted(id: Long, deleted: Boolean) {
+        val target = _uiState.value.conversation.messages.firstOrNull { it.id == id } ?: return
+        if (target.deleted == deleted) return
+        if (deleted && MessageAction.Delete !in target.longPressActions) return
+        updateThread { it.withMessageDeleted(id, deleted) }
+        val changed = _uiState.value.conversation
+        viewModelScope.launch { persist(changed) }
     }
 
     private fun updateMessage(id: Long, text: String, streaming: Boolean) {

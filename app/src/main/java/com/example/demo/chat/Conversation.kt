@@ -1,6 +1,7 @@
 package com.example.demo.chat
 
 import com.example.demo.llm.ModelSpec
+import com.example.demo.llm.Turn
 import com.example.demo.persona.Persona
 
 enum class Author { You, Assistant }
@@ -12,7 +13,32 @@ data class ChatMessage(
     val createdAt: Long = System.currentTimeMillis(),
     /** True while the assistant is still streaming this message in. */
     val streaming: Boolean = false,
+    /**
+     * Taken back by the reader, and restorable for as long as the thread exists. The
+     * message keeps its place and its words; who skips it is decided by whoever is
+     * reading — see [Conversation.title] and its neighbours.
+     */
+    val deleted: Boolean = false,
 )
+
+/** What a long press on a message offers. */
+enum class MessageAction { Copy, Delete }
+
+/**
+ * A reply still arriving offers nothing: what would be copied or deleted is not settled
+ * yet. A deleted message offers nothing either — its one way back is the restore link.
+ * This asks about the message alone, so a reply streaming in elsewhere in the thread
+ * takes nothing away from the finished ones.
+ */
+val ChatMessage.longPressActions: Set<MessageAction>
+    get() = if (streaming || deleted) emptySet() else setOf(MessageAction.Copy, MessageAction.Delete)
+
+/**
+ * The words as stored, not as drawn: a reply keeps its Markdown marks, and an ending
+ * mark such as "…（已停止）" comes along because it is part of the text.
+ */
+val ChatMessage.clipboardText: String
+    get() = text
 
 /**
  * One chat thread. A conversation is bound to both the persona and the model it was
@@ -27,14 +53,18 @@ data class Conversation(
     val updatedAt: Long,
     val messages: List<ChatMessage>,
 ) {
-    /** Threads are named after whatever the user opened with. */
+    /**
+     * Threads are named after whatever the user opened with — of what is still there.
+     * A thread whose every line from the user was deleted is not one they never spoke in,
+     * and does not get to be called that.
+     */
     val title: String
-        get() = messages.firstOrNull { it.author == Author.You }
+        get() = messages.firstOrNull { it.author == Author.You && !it.deleted }
             ?.text?.replace('\n', ' ')?.cutTo(26)
-            ?: "還沒說話"
+            ?: if (isBlank) "還沒說話" else "（訊息已刪除）"
 
     val preview: String
-        get() = messages.lastOrNull()?.text?.replace('\n', ' ')?.cutTo(40).orEmpty()
+        get() = messages.lastOrNull { !it.deleted }?.text?.replace('\n', ' ')?.cutTo(40).orEmpty()
 
     /**
      * A cut short enough to fit on one line gets no ellipsis from the drawer row,
@@ -50,22 +80,44 @@ data class Conversation(
         return if (end >= length) this else take(end) + "…"
     }
 
-    /** An untouched thread is not worth keeping in the history list. */
+    /**
+     * An untouched thread is not worth keeping in the history list. Deleted messages
+     * count here, unlike everywhere else: a blank thread is removed from the phone when
+     * saved, and that would take every deleted message's words — and the way back to
+     * them — with it.
+     */
     val isBlank: Boolean
         get() = messages.none { it.author == Author.You }
 }
 
 /**
  * Whether two versions of a thread say the same thing: the same messages, in the same
- * order, with the same words. Deliberately blind to [ChatMessage.streaming] — a reply
- * that has stopped arriving contains exactly the text it already contained.
+ * order, with the same words, each still there or not. Deliberately blind to
+ * [ChatMessage.streaming] — a reply that has stopped arriving contains exactly the text
+ * it already contained.
  */
 internal fun Conversation.hasSameContentAs(other: Conversation): Boolean =
     messages.size == other.messages.size &&
         messages.indices.all { index ->
             messages[index].id == other.messages[index].id &&
-                messages[index].text == other.messages[index].text
+                messages[index].text == other.messages[index].text &&
+                messages[index].deleted == other.messages[index].deleted
         }
+
+/**
+ * What the model is shown of this thread when the next line is sent. Deleted messages go
+ * first and leading assistant turns second: the persona's opener is scene-setting, not
+ * dialogue, and so is a reply left at the front because the line it answered was deleted
+ * — Gemma's format folds the system prompt into whatever turn comes first.
+ */
+fun Conversation.contextForNextTurn(): List<Turn> =
+    messages
+        .filterNot { it.deleted }
+        .map { Turn(fromUser = it.author == Author.You, text = it.text) }
+        .dropWhile { !it.fromUser }
+
+fun Conversation.withMessageDeleted(messageId: Long, deleted: Boolean): Conversation =
+    copy(messages = messages.map { if (it.id == messageId) it.copy(deleted = deleted) else it })
 
 sealed interface EngineStatus {
     /** Unpacking the bundled model on first launch. [progress] is 0f..1f. */

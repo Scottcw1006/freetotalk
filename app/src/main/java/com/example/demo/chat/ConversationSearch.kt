@@ -64,7 +64,8 @@ data class SearchUiState(
  * line. [ChatViewModel.send] drops those openers when it builds model context, but that
  * is a judgement about what makes the model answer well; this is a judgement about what
  * the user saw on screen. The two questions are allowed different answers, so the two
- * filters stay separate rather than being shared.
+ * filters stay separate rather than being shared. A deleted message is not on screen,
+ * so it is not searched — and the words on its placeholder are not message text.
  *
  * Conversations come back newest-updated first; hits inside one stay in the order the
  * messages were said.
@@ -83,7 +84,7 @@ fun searchConversations(
     return conversations
         .sortedByDescending { it.updatedAt }
         .mapNotNull { conversation ->
-            val matched = conversation.messages.mapNotNull { it.hitOrNull(needle) }
+            val matched = conversation.messages.filterNot { it.deleted }.mapNotNull { it.hitOrNull(needle) }
             // A conversation with no hits must not survive as a bare header row.
             if (matched.isEmpty()) return@mapNotNull null
             ConversationHits(

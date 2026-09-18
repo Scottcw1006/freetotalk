@@ -1,7 +1,11 @@
 package com.example.demo.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +31,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -61,10 +67,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,6 +91,9 @@ import com.example.demo.chat.ChatUiState
 import com.example.demo.chat.ChatViewModel
 import com.example.demo.chat.Conversation
 import com.example.demo.chat.EngineStatus
+import com.example.demo.chat.MessageAction
+import com.example.demo.chat.clipboardText
+import com.example.demo.chat.longPressActions
 import com.example.demo.llm.ModelSpec
 import com.example.demo.persona.Persona
 import kotlinx.coroutines.launch
@@ -207,6 +226,8 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                         state = state,
                         onSend = viewModel::send,
                         onStop = viewModel::stop,
+                        onDeleteMessage = viewModel::deleteMessage,
+                        onRestoreMessage = viewModel::restoreMessage,
                         loading = status.takeIf { it !is EngineStatus.Ready },
                     )
                 }
@@ -488,6 +509,8 @@ private fun ChatPane(
     state: ChatUiState,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
+    onDeleteMessage: (Long) -> Unit,
+    onRestoreMessage: (Long) -> Unit,
     loading: EngineStatus?,
 ) {
     val listState = rememberLazyListState()
@@ -515,7 +538,13 @@ private fun ChatPane(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(messages.asReversed(), key = { it.id }) { message -> MessageBubble(message) }
+            items(messages.asReversed(), key = { it.id }) { message ->
+                MessageBubble(
+                    message = message,
+                    onDelete = { onDeleteMessage(message.id) },
+                    onRestore = { onRestoreMessage(message.id) },
+                )
+            }
         }
         HorizontalDivider()
         InputBar(
@@ -557,7 +586,7 @@ private fun LoadingBanner(status: EngineStatus) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, onDelete: () -> Unit, onRestore: () -> Unit) {
     val fromMe = message.author == Author.You
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -569,35 +598,126 @@ private fun MessageBubble(message: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (fromMe) Arrangement.End else Arrangement.Start,
     ) {
-        Surface(
-            shape = shape,
-            color = if (fromMe) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            modifier = Modifier.widthIn(max = 300.dp),
-        ) {
-            val ink = if (fromMe) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            val inset = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-            when {
-                message.text.isEmpty() && message.streaming ->
-                    TypingIndicator(Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
-                // Only the model writes Markdown. What the user typed is shown as typed.
-                fromMe -> Text(
-                    text = message.text,
-                    modifier = inset,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = ink,
-                )
-                else -> ProvideTextStyle(MaterialTheme.typography.bodyLarge) {
-                    ModelMarkdownText(text = message.text, color = ink, modifier = inset)
+        if (message.deleted) {
+            DeletedPlaceholder(shape, onRestore)
+            return@Row
+        }
+        // What a long press offers is asked of the message, not decided here: a reply
+        // still arriving offers nothing, so it gets no long press at all.
+        val actions = message.longPressActions
+        // Where the finger was, so the menu opens there: a reply taller than the screen
+        // would otherwise open it at an edge that may not even be in view.
+        var pressedAt by remember { mutableStateOf<Offset?>(null) }
+        var bubbleHeight by remember { mutableStateOf(0) }
+        val haptics = LocalHapticFeedback.current
+        val context = LocalContext.current
+        Box(Modifier.onSizeChanged { bubbleHeight = it.height }) {
+            Surface(
+                shape = shape,
+                color = if (fromMe) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .clip(shape)
+                    .then(
+                        if (actions.isEmpty()) {
+                            Modifier
+                        } else {
+                            Modifier.pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = { at ->
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        pressedAt = at
+                                    },
+                                )
+                            }
+                        }
+                    ),
+            ) {
+                val ink = if (fromMe) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                val inset = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                when {
+                    message.text.isEmpty() && message.streaming ->
+                        TypingIndicator(Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
+                    // Only the model writes Markdown. What the user typed is shown as typed.
+                    fromMe -> Text(
+                        text = message.text,
+                        modifier = inset,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = ink,
+                    )
+                    else -> ProvideTextStyle(MaterialTheme.typography.bodyLarge) {
+                        ModelMarkdownText(text = message.text, color = ink, modifier = inset)
+                    }
                 }
             }
+            // The menu hangs from the bubble's bottom-left corner; this moves it to the finger.
+            val menuOffset = with(LocalDensity.current) {
+                val at = pressedAt ?: Offset.Zero
+                DpOffset(at.x.toDp(), (at.y - bubbleHeight).toDp())
+            }
+            DropdownMenu(
+                expanded = pressedAt != null,
+                onDismissRequest = { pressedAt = null },
+                offset = menuOffset,
+            ) {
+                if (MessageAction.Copy in actions) {
+                    DropdownMenuItem(
+                        text = { Text("複製") },
+                        onClick = {
+                            pressedAt = null
+                            context.getSystemService(ClipboardManager::class.java)
+                                .setPrimaryClip(ClipData.newPlainText("", message.clipboardText))
+                        },
+                    )
+                }
+                if (MessageAction.Delete in actions) {
+                    DropdownMenuItem(
+                        text = { Text("刪除") },
+                        onClick = {
+                            pressedAt = null
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Stands where a deleted message stood. An outline rather than a filled bubble, so it
+ * cannot be mistaken for a message that happens to say these words — and none of the
+ * message's own words are anywhere in it.
+ */
+@Composable
+private fun DeletedPlaceholder(shape: RoundedCornerShape, onRestore: () -> Unit) {
+    Surface(
+        shape = shape,
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val faint = MaterialTheme.colorScheme.onSurfaceVariant
+            val style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic)
+            Text("已刪除的對話（", style = style, color = faint)
+            Text(
+                text = "復原",
+                style = style.copy(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Normal),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(onClick = onRestore),
+            )
+            Text("）", style = style, color = faint)
         }
     }
 }
