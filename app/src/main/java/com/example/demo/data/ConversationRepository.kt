@@ -36,8 +36,9 @@ import kotlinx.coroutines.withContext
  *
  * Three ways the store can let the user down, told apart by whether the saved threads
  * themselves are damaged:
- * - damaged (a corrupt file): thrown away, the store starts over, and [wasReset] says so
- *   once;
+ * - damaged (a corrupt file — or, only ever while developing, tables changed without
+ *   the schema version going up): thrown away, the store starts over, and [wasReset]
+ *   says so once;
  * - not openable, with nothing to show they are damaged (a read-only file, wrong
  *   permissions, a schema version this build has no migration from, or one newer than
  *   this build): left exactly as they are, and [cannotOpen] says so — the next launch,
@@ -188,10 +189,11 @@ class ConversationRepository private constructor(context: Context) {
 }
 
 /**
- * A corrupt file, a schema Room cannot use, or a database that was closed underneath us
- * after Android discarded it as corrupt. Anything else — a file that cannot be opened,
- * running out of space, a read-only file, any other failure — is not in this list,
- * because resetting throws every saved thread away and those threads may be fine.
+ * A corrupt file, tables that do not match what this schema version says they are, or a
+ * database that was closed underneath us after Android discarded it as corrupt. Anything
+ * else — a file that cannot be opened, running out of space, a read-only file, a schema
+ * version there is no migration from, any other failure — is not in this list, because
+ * resetting throws every saved thread away and those threads may be fine.
  */
 private fun Throwable.meansStoreIsDamaged(): Boolean =
     this is SQLiteDatabaseCorruptException ||

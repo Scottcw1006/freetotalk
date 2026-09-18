@@ -353,7 +353,7 @@
     <p>
       第三個畫面是搜尋，它<strong>刻意沒有自己的 ViewModel</strong>：它讀的就是聊天頁那一份狀態。
       搜尋要找的是「使用者看得到的對話」，而唯一知道那是什麼的就是聊天頁的狀態——
-      另開一個 ViewModel 等於再去資料庫拿一份，那份會少掉還沒存檔的對話和正在串流的回覆。
+      開著的那段對話只有它握著——還沒存檔的訊息和正在串流的回覆不在資料庫裡；另開一個 ViewModel 只拿得到資料庫那一半。
       三個畫面之間也沒有導航框架，只有兩個布林旗標決定現在顯示哪一個。
     </p>
     <p>
@@ -364,7 +364,7 @@
 
     <figure>
       <div class="frame">
-        <svg viewBox="0 0 920 620" role="img" aria-label="元件圖：ChatScreen 與 SearchScreen 共用同一個 ChatViewModel，CompareScreen 對應 CompareViewModel，兩個 ViewModel 都呼叫同一個 LlmEngine 單例；ChatViewModel 另外連到 Persona、ConversationSearch 與 ConversationRepository，Repository 之下是 Room 資料庫 ConversationDatabase，一段對話存成一列；LlmEngine 之下是 ModelSpec、ModelStore 與 MediaPipe 原生程式庫。">
+        <svg viewBox="0 0 920 620" role="img" aria-label="元件圖：ChatScreen 與 SearchScreen 共用同一個 ChatViewModel，CompareScreen 對應 CompareViewModel，兩個 ViewModel 都呼叫同一個 LlmEngine 單例；ChatViewModel 另外連到 Persona、ConversationSearch 與 ConversationRepository，Repository 之下是 Room 資料庫 ConversationDatabase，對話一張表、訊息一張表；LlmEngine 之下是 ModelSpec、ModelStore 與 MediaPipe 原生程式庫。">
           <defs>
             <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path class="mk" d="M0,1 L9,5 L0,9 z"/>
@@ -433,7 +433,7 @@
 
           <rect class="box" x="20" y="486" width="200" height="46" rx="4"/>
           <text class="lbl" x="32" y="506">ConversationDatabase</text>
-          <text class="sub" x="32" y="522">Room：一段對話一列</text>
+          <text class="sub" x="32" y="522">Room：對話與訊息各一張表</text>
 
           <line class="edge" x1="120" y1="462" x2="120" y2="482" marker-end="url(#a1)"/>
 
@@ -562,7 +562,7 @@
           <rect class="box" x="20" y="170" width="185" height="80" rx="4"/>
           <text class="num" x="34" y="192">08</text>
           <text class="lbl-b" x="34" y="214">存檔</text>
-          <text class="sub" x="34" y="233">資料庫裡一段一列</text>
+          <text class="sub" x="34" y="233">一則訊息一列，整段一筆交易</text>
 
           <line class="edge" x1="691" y1="210" x2="659" y2="210" marker-end="url(#a2)"/>
           <line class="edge" x1="466" y1="210" x2="434" y2="210" marker-end="url(#a2)"/>
@@ -827,26 +827,47 @@
 
   <section>
     <div class="eyebrow">對話儲存</div>
-    <h2>一段對話一列，歷史清單跟著資料庫走</h2>
+    <h2>一則訊息一列，歷史清單跟著資料庫走</h2>
     <p>
       對話存在 Room 資料庫裡，整個行程只有一個實例（<code>ConversationRepository.get()</code>）。
-      <strong>一段對話就是一列</strong>，所有訊息打包成那一列裡的一段 JSON 文字。這樣存一次檔只有一個「新增或覆寫」指令、刪除也只有一個指令——
-      單一指令本身就是整筆生效，讀的人不會撞見寫到一半、或暫時不見的對話。
-      以前的「先把檔清空再寫入」正是這種暫時不見的來源：回覆還在生成時切換，同一段會被幾乎同時存兩次，讀清單的人剛好讀到空檔，那段就從清單上消失。
-      <strong>這一層沒有自動化測試</strong>（使用者的裁決），所以「每次寫入只有一個指令」是它唯一的保證；哪天要拆成多個指令，必須同時補上交易與測試。
+      <strong>對話一張表、訊息一張表，一則訊息就是自己的一列</strong>：屬於哪一段、id、順序、作者、文字、時間、<strong>刪除狀態</strong>，每一樣都是一個欄位，沒有任何東西打包在別的欄位裡。
+      一則訊息的身分是「哪一段＋訊息 id」——訊息 id 每一段各自從 0 起算，單看 id 會跨段撞號。順序看 <code>position</code> 欄位，不看 id：App 自己發的 id 只會變大，但從外面寫進來的對話不保證。
+      資料庫裡也<strong>不存任何從訊息算得出來的東西</strong>（標題、預覽、給搜尋用的整形文字都沒有）；要存的那一天，這裡得先寫明它是什麼、為什麼非存不可、來源變了怎麼跟著變。
+    </p>
+    <p>
+      <strong>存一段對話是好幾個指令，包在一筆交易裡</strong>（<code>ConversationDao.write</code>：寫對話那一列、清掉那一段舊的訊息列、寫入現在的訊息列）；刪一段也是一筆交易（先刪訊息列、再刪對話列）。
+      交易讓它整筆生效，讀的人不會撞見「對話在、訊息不在」或只有一半的訊息。以前的「先把檔清空再寫入」正是這種暫時不見的來源：回覆還在生成時切換，同一段會被幾乎同時存兩次，讀清單的人剛好讀到空檔，那段就從清單上消失。
+      每一次存檔都是把那一段的訊息列整組換掉，所以存完之後資料庫裡那一段恰好就是記憶體裡那一段，不會有哪一種改變（新增、改字、移除、刪除狀態）漏寫。
+      訊息列是用明確的刪除指令清掉的，不靠外鍵的連帶刪除——連帶刪除只在有開外鍵的連線上才會發生，而且會讓「覆寫對話那一列」變成「清光它的訊息」。
+    </p>
+    <p>
+      <strong>這一層沒有自動化測試</strong>（使用者的裁決），產品程式碼也沒有測試專用的入口。所以「哪幾個指令必須在同一筆交易裡」只有 <code>data/ConversationDatabase.kt</code> 的註解與裝置上的驗收在守；
+      缺口是：行程在存檔途中、或在搬遷途中被結束時資料是否完好，沒有任何東西驗過，靠的是 SQLite 交易本身的保證。
     </p>
     <p>
       <strong>歷史清單是持續算出來的，不是讀一次存起來的。</strong>它等於「資料庫裡的所有對話，扣掉目前開著的那段」，兩邊任一變動就重算（<code>chat/HistoryList.kt</code>）。
       所以切換、刪除、回覆收尾之後都不必再去「重讀一次清單」——被切走的那段一存進去就出現在清單上。
-      資料庫仍然<strong>不是唯一的來源</strong>：開著的那段與正在串流的回覆只在記憶體裡，搜尋看的是記憶體加上這份清單（見下面搜尋那節）。
+      <strong>清單不持有完整的對話。</strong>一個查詢替每一段只取它自己的欄位，加上三樣：第一則沒被刪的「你說的話」、最後一則沒被刪的訊息、有沒有任何一則「你說的話」（含已刪除的，用來分辨「（訊息已刪除）」與「還沒說話」）。
+      「取哪一則」在查詢裡（<code>ConversationDao.observeHistory</code>），那是 JVM 測試看不到的一半，由裝置上的驗收守；拿到之後<strong>標題與預覽怎麼算、怎麼截短，仍然只有 <code>Conversation.title</code>／<code>preview</code> 那一份</strong>——
+      <code>data/HistoryRows.kt</code> 把查詢結果立成一段最小的對話再去問它，有 JVM 測試對照完整對話的答案。一段對話的完整內容在它被打開時才讀。
+      資料庫仍然<strong>不是唯一的來源</strong>：開著的那段與正在串流的回覆只在記憶體裡（見下面搜尋那節）。
     </p>
     <p>
-      讀取有兩條路（取全部、依 id 取一筆），兩條走同一套解析規則（<code>data/ConversationRecords.kt</code>），而且是一列一列解析：
-      解不開的那一列只丟掉它自己，不會讓整份歷史消失，兩條路對同一個 id 的答案也一定相同。Room 只負責交出每一列的原始字串。
+      讀取有三條路（歷史清單、依 id 取一段、搜尋時一批一批取），取出整段對話的兩條走同一套解析規則（<code>data/ConversationRecords.kt</code>），而且是一段一段解析：
+      讀不起來的那一段（例如某一則訊息的作者是不認得的值）只丟掉它自己，不會讓整份歷史消失，幾條路對同一個 id 的答案也一定相同——歷史清單的查詢會把「有不認得的作者」的那一段標出來，由同一層略過。
+      Room 只負責交出每一列的原始字串；作者欄位刻意不讓 Room 直接轉成列舉，否則一列壞資料會讓整個查詢失敗。查詢裡要用到的作者名稱是綁進去的參數，SQL 裡沒有寫死任何一個。
+      新結構<strong>沒有</strong>用限制條件擋掉不認得的作者，所以這種壞資料從外面仍然寫得進去。
     </p>
     <p>
-      <strong>訊息的刪除狀態記在那段 JSON 裡每一則自己的物件上，表格結構沒有動。</strong>這是刻意的：資料庫設定成「結構版本對不上又沒有搬遷就整個清掉重來」，
-      改結構版本等於讓每個升級的使用者失去全部對話。缺這個欄位讀成未刪除，所以舊資料不必搬遷；未刪除時不寫這個欄位，所以沒用過刪除的對話存出來與舊版逐字相同。
+      <strong>從舊結構升級。</strong>結構版本 1 是「一段對話一列、所有訊息打包成那一列裡的一段 JSON」，已刪除的訊息在自己的物件上多一個 <code>"deleted":true</code>、未刪除的不寫這個鍵。
+      版本 2 就是上面的樣子。升級時 Room 在一筆交易裡跑 <code>data/ConversationMigrations.kt</code>：舊表改名、建立新的兩張表、把舊的每一列交給 <code>data/LegacyThreadRows.kt</code> 的轉換（純邏輯，有 JVM 測試，搬遷跑的就是被測的那一份）、最後把舊表刪掉，不留備份。
+      沒有 <code>deleted</code> 鍵讀成未刪除；文字一個碼位都不動；<strong>最後更新時間照搬——搬遷不算一次更新</strong>，抽屜的順序與時間不變。
+      <strong>解不開的舊資料列只丟掉它自己</strong>（不是合法的訊息陣列、某一則缺欄位、作者不認得、同一列裡訊息 id 重複），其餘照搬；只有助理訊息或沒有訊息的列不算解不開，照搬。
+      搬遷在原本的檔案上做，不另建新檔——App 是從「資料庫被重新建立了一次」認出清掉重來的，重建檔案會讓每個升級的人看到「已經清空」。
+    </p>
+    <p>
+      <strong>以後每一次改結構，都要把 <code>SCHEMA_VERSION</code>（<code>data/ConversationDatabase.kt</code>）加一，並在 <code>ConversationMigrations.all</code> 補上那一步的搬遷。</strong>
+      「版本對不上就整個清掉重來」的設定兩個方向都已經拿掉：漏寫搬遷、或手機上的資料比這個建置新，結果是資料庫開不起來、資料原封不動（下表第二列），補上搬遷的下一版就救得回來。
     </p>
     <p>
       <strong>舊版的 JSON 檔不搬遷。</strong>App 每次啟動、碰資料庫之前，會把 <code>filesDir/conversations/</code> 這一個子目錄整個刪掉，而且只刪它——模型檔就放在它的上一層。刪不掉就等下次啟動再試，不影響開啟。
@@ -858,8 +879,8 @@
       <table>
         <thead><tr><th>情況</th><th>原本的紀錄</th><th>使用者看到</th></tr></thead>
         <tbody>
-          <tr><td><strong>內容壞了</strong>：檔案損毀、結構不認得</td><td>丟掉，重新開始</td><td>提示一次「之前的對話紀錄讀不出來，已經清空，從這裡重新開始。」</td></tr>
-          <tr><td><strong>開不起來，而且判斷不出內容壞了</strong>：檔案被設成唯讀、權限不對</td><td><strong>不動</strong>，下次啟動再試</td><td>每次啟動提示一次「目前讀不到之前的對話紀錄（紀錄沒有被刪除），這段期間的對話也可能存不下來。」；抽屜寫「目前讀不到之前的對話紀錄。」；每次存檔失敗再提示「有一段對話沒能存下來。」</td></tr>
+          <tr><td><strong>內容壞了</strong>：資料庫檔損毀</td><td>丟掉，重新開始</td><td>提示一次「之前的對話紀錄讀不出來，已經清空，從這裡重新開始。」</td></tr>
+          <tr><td><strong>開不起來，而且判斷不出內容壞了</strong>：檔案被設成唯讀、權限不對；<strong>結構版本對不上</strong>（需要一段搬遷而這個建置沒有、或資料的版本比這個建置新）</td><td><strong>不動</strong>，下次啟動再試</td><td>每次啟動提示一次「目前讀不到之前的對話紀錄（紀錄沒有被刪除），這段期間的對話也可能存不下來。」；抽屜寫「目前讀不到之前的對話紀錄。」；每次存檔失敗再提示「有一段對話沒能存下來。」</td></tr>
           <tr><td><strong>開得起來，但某一次寫不進去</strong>：空間不足</td><td>不動</td><td>「有一段對話沒能存下來。」</td></tr>
           <tr><td>只有其中一段讀不起來</td><td>其餘照常</td><td>那一段不出現在清單上</td></tr>
         </tbody>
@@ -867,7 +888,7 @@
     </div>
     <p>
       <strong>判斷不出來時，一律當成開不起來。</strong>丟掉是不能復原的，而讓資料庫開不起來的原因往往會自己消失；判錯的另一個方向只是這次啟動讀不到。
-      所以只有 Android 回報的損毀、Room 認不得的結構、以及 Android 因損毀而關掉連線這幾種會丟掉重來（<code>ConversationRepository</code> 裡的 <code>meansStoreIsDamaged</code>）；「開不了檔」那一類錯誤、唯讀、以及其他任何失敗都不會。
+      所以只有 Android 回報的損毀、以及 Android 因損毀而關掉連線這幾種會丟掉重來（另外還留著一種開發時才會出現的：改了表格卻沒把結構版本加一，Room 會說它驗證不了資料——那是實作錯誤，不是使用者會遇到的情形）（<code>ConversationRepository</code> 裡的 <code>meansStoreIsDamaged</code>）；「開不了檔」那一類錯誤、唯讀、<strong>缺搬遷或版本比建置新</strong>（Room 的訊息是 <code>A migration from X to Y was required but not found</code>）、以及其他任何失敗都不會。
       注意唯讀在 Android 上造成的是整個開不起來（<code>Could not open the database in read/write mode</code>），不是「只有寫入失敗」。
     </p>
     <p>
@@ -879,7 +900,7 @@
       <h3>從 App 以外讀寫資料庫（驗收用）</h3>
       <p>
         位置：<code>/data/data/com.example.demo/databases/conversations.db</code>，旁邊還有 <code>conversations.db-wal</code> 與 <code>conversations.db-shm</code>。
-        可用 <code>adb shell run-as com.example.demo</code> 讀寫。結構以 <code>app/schemas/</code> 裡 Room 匯出的 JSON 為準，目前是：
+        可用 <code>adb shell run-as com.example.demo</code> 讀寫。結構以 <code>app/schemas/</code> 裡 Room 匯出的 JSON 為準（最新的是 <code>2.json</code>），目前是：
       </p>
       <div class="scroll">
         <table>
@@ -889,17 +910,36 @@
             <tr><td><code>persona</code></td><td>TEXT</td><td>人格的列舉名稱，例如 <code>Sibling</code>、<code>Teacher</code></td></tr>
             <tr><td><code>model</code></td><td>TEXT</td><td>模型的列舉名稱，例如 <code>Gemma1B</code>、<code>Qwen05B</code></td></tr>
             <tr><td><code>createdAt</code>、<code>updatedAt</code></td><td>INTEGER</td><td>毫秒時間戳</td></tr>
-            <tr><td><code>messages</code></td><td>TEXT</td><td>JSON 陣列，每一則是 <code>{"id":0,"author":"You","text":"…","createdAt":1789…}</code>；<code>author</code> 只能是 <code>You</code> 或 <code>Assistant</code>。<strong>已刪除的訊息多一個欄位 <code>"deleted":true</code></strong>，其餘不變，<code>text</code> 仍是完整的原文</td></tr>
           </tbody>
         </table>
       </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>表 <code>messages</code> 的欄位</th><th>型別</th><th>內容</th></tr></thead>
+          <tbody>
+            <tr><td><code>conversationId</code></td><td>TEXT，主鍵的一半</td><td>屬於哪一段對話（<code>conversations.id</code>）。沒有外鍵限制</td></tr>
+            <tr><td><code>id</code></td><td>INTEGER，主鍵的另一半</td><td>訊息 id，每一段各自從 0 起算</td></tr>
+            <tr><td><code>position</code></td><td>INTEGER</td><td><strong>排序用這一欄</strong>：那一段裡由上到下 0、1、2…</td></tr>
+            <tr><td><code>author</code></td><td>TEXT</td><td>只能是 <code>You</code> 或 <code>Assistant</code>（資料庫本身不擋別的值）</td></tr>
+            <tr><td><code>text</code></td><td>TEXT</td><td><strong>原文</strong>，逐碼位就是訊息文字；已刪除的訊息這一欄仍是完整的原文</td></tr>
+            <tr><td><code>createdAt</code></td><td>INTEGER</td><td>毫秒時間戳</td></tr>
+            <tr><td><code>deleted</code></td><td>INTEGER</td><td><strong>刪除狀態</strong>，每一列都有值：<code>1</code> 是已刪除（畫面上是佔位），<code>0</code> 是未刪除</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        另外兩張表不算儲存的內容：<code>room_master_table</code>（Room 記結構識別用）與 <code>android_metadata</code>。
+      </p>
       <ul>
-        <li><strong>判斷某一則訊息是不是已刪除</strong>：看它在 <code>messages</code> 陣列裡的那個物件有沒有 <code>"deleted":true</code>。有就是已刪除（畫面上是佔位），原文就是同一個物件的 <code>text</code>；<strong>沒有這個欄位就是未刪除</strong>——未刪除的訊息不寫這個欄位（不會出現 <code>"deleted":false</code>），復原之後欄位也會消失。所以這個功能出現之前存下的資料、以及沒有任何已刪除訊息的對話，長得一模一樣，都代表「每一則都未刪除」。例：<code>sqlite3 conversations.db "select messages from conversations where id='…'"</code> 取出後用任何 JSON 工具看每一則。</li>
         <li><strong>一律在 App 停止時做</strong>（<code>am force-stop</code>），改完再冷啟動。Room 看不到 App 以外的修改。</li>
         <li><strong>這是 WAL 模式的資料庫，三個檔要當成一份。</strong>最近寫入的內容常常只在 <code>-wal</code> 裡：讀的時候三個檔一起複製出來再開；只覆寫 <code>conversations.db</code> 而留著 <code>-wal</code>，SQLite 會照樣從 <code>-wal</code> 讀出完整資料，看起來像什麼都沒壞。</li>
-        <li><strong>寫入一段自訂的對話</strong>：先把三個檔拉出來，用主機上的 <code>sqlite3</code> 開啟並 <code>INSERT</code>（它會把 WAL 併回主檔），再把 <code>conversations.db</code> 推回去、刪掉裝置上的 <code>-wal</code> 與 <code>-shm</code>。</li>
-        <li><strong>讓一段對話解不開</strong>：把那一列的 <code>messages</code> 改成不是 JSON 的文字，或把某一則的 <code>author</code> 改成不存在的值。</li>
+        <li><strong>列出每一段對話</strong>：<code>select * from conversations</code>。<strong>列出某一段的每一則訊息</strong>：<code>select id, author, text, createdAt, deleted from messages where conversationId='…' order by position</code>。不需要解開任何東西。</li>
+        <li><strong>寫入一段自訂的對話</strong>（例如只含助理訊息的）：先把三個檔拉出來，用主機上的 <code>sqlite3</code> 開啟，<code>INSERT</code> 一列 <code>conversations</code>，再替它 <code>INSERT</code> 每一則 <code>messages</code>（<code>position</code> 從 0 依序編、<code>deleted</code> 給 0 或 1；<code>sqlite3</code> 會把 WAL 併回主檔），再把 <code>conversations.db</code> 推回去、刪掉裝置上的 <code>-wal</code> 與 <code>-shm</code>。</li>
+        <li><strong>讓一段對話讀不起來</strong>：把它某一則訊息的 <code>author</code> 改成不存在的值（例如 <code>update messages set author='Robot' where conversationId='…' and id=1</code>）。新結構沒有擋這種值，所以造得出來。</li>
         <li><strong>讓整份讀不起來</strong>：把 <code>conversations.db</code> 整份覆寫成亂碼，<strong>並且刪掉 <code>-wal</code> 與 <code>-shm</code></strong>。</li>
+        <li><strong>改掉資料庫檔記的結構版本號</strong>：它是 SQLite 的 <code>user_version</code>。<code>sqlite3 conversations.db "PRAGMA user_version"</code> 讀（現在是 <code>2</code>），<code>"PRAGMA user_version=9"</code> 改成比建置新，推回去並刪掉 <code>-wal</code>、<code>-shm</code>；還原就是改回原本的數字再推一次。</li>
+        <li><strong>結構版本號宣告在原始碼的哪裡</strong>：<code>app/src/main/java/com/example/demo/data/ConversationDatabase.kt</code> 最底下的 <code>const val SCHEMA_VERSION = 2</code>。只把它加一而不在 <code>ConversationMigrations.all</code> 補搬遷，就是「漏寫搬遷」的建置（建置時 Room 會多匯出一份 <code>app/schemas/…/3.json</code>，不影響建置）。</li>
+        <li><strong>舊結構（版本 1）的說明</strong>在版本控制裡：<code>git show e7de9fd:plan/architecture.html</code> 的同一節；舊的儲存形式在 <code>git show e7de9fd:app/src/main/java/com/example/demo/data/ConversationRecords.kt</code>。要從外面寫舊結構的資料列，得用舊版建置建立的資料庫檔。</li>
       </ul>
     </div>
 
@@ -969,17 +1009,25 @@
 
   <section>
     <div class="eyebrow">搜尋</div>
-    <h2>比對的是記憶體裡的對話，不是存下來的</h2>
+    <h2>開著的那段看記憶體，其餘的從資料庫讀出來比——比的規則只有一份</h2>
     <p>
-      這是最容易做錯的一步：對話存在資料庫裡，而資料庫本來就會查詢，所以「直接下查詢比對」看起來理所當然。
-      但那樣會漏掉兩種東西——<strong>正開著、卻還沒存過檔的那段對話</strong>（只有開場白的對話刻意不存），
+      這是最容易做錯的一步：對話存在資料庫裡，而資料庫本來就會查詢，所以「直接下查詢比對」看起來理所當然。錯有兩層。
+      第一層，那樣會漏掉兩種東西——<strong>正開著、卻還沒存過檔的那段對話</strong>（只有開場白的對話刻意不存），
       以及<strong>還在串流的那則回覆</strong>（它此刻只存在記憶體裡）。
-      所以搜尋看的是聊天頁那份狀態：開啟中的那段對話，加上歷史清單，同一個 id 出現兩次時留記憶體那份，因為存下來的那份永遠不會比較新。
-      資料層那邊也刻意<strong>沒有</strong>查詢方法，資料庫的查詢能力在這裡刻意不用——它只知道存下來了什麼，回答不了這個問題。
+      第二層，<strong>資料庫內建的比對不是我們的比對</strong>：它的大小寫折疊只管 ASCII、不認得全形、不會把一串空白收成一個。交給它，同一句話就會「開著的時候搜得到、切走之後搜不到」，而且那是第二份比對規則，是測試看不到的那一份。
     </p>
     <p>
-      結果不是寫進狀態的，而是在狀態送出去的路上算出來的。刪掉一段對話、串流進一個字，都會改變什麼算命中，
-      而這兩件事都不會經過搜尋的程式碼——把結果做成衍生值，就沒有人有機會忘記重算。
+      所以搜尋的結果＝<strong>開著的那一段（記憶體裡的版本）＋資料庫裡其他每一段</strong>，兩邊都交給同一個 <code>searchConversations</code>（<code>chat/SearchAssembly.kt</code>）。
+      資料庫只負責<strong>把訊息交出來</strong>，不判斷命中：每一次搜尋，資料層依最後更新時間把存下來的對話一批一批（一批 20 段）讀出來，比完只留下命中的那幾則，整批放掉——任何時刻記憶體裡都沒有全部的訊息，資料庫裡也不另存比對用的文字。
+      同一個 id 兩邊都有時留記憶體那一份（先決定留哪一份、再排序），因為存下來的那份可能時間較新、內容卻比較少。
+    </p>
+    <p>
+      代價是<strong>每一次搜尋都把全部訊息文字從磁碟讀過一遍</strong>（使用者知情接受）。所以<strong>輸入框停下來 250 毫秒才開始搜尋</strong>，搜的是那一刻的內容，打字途中的中間內容不會各自被搜一次；
+      等待的期間畫面停在上一個狀態。<strong>清空不等</strong>：輸入框一空就回到引導文案，還在路上的那一次搜尋直接作廢。前一次還在讀的時候查詢又變了，前一次會被取消，晚到的結果不可能蓋上來。
+      查詢沒變而資料變了時不另外等：開著的那一段變了（串流進一個字、刪除一則）只重算記憶體那一半；資料庫有寫入才重讀資料庫那一半。
+    </p>
+    <p>
+      結果不是寫進狀態的，而是在狀態送出去的路上接上去的（<code>ChatViewModel.uiState</code>）。結果帶著它所屬的查詢（<code>SearchUiState.searchedQuery</code>），畫面說「找不到符合「…」」時說的是那一個，不是輸入框此刻的字。
     </p>
     <p>
       一段對話最多列三則命中，其餘只報數字（「還有 N 則符合」），免得一段長對話把其他結果全擠出畫面。
@@ -1062,10 +1110,10 @@
         </p>
       </div>
       <div class="note caution">
-        <h3>每一次狀態變動都會重算一次全部</h3>
+        <h3>每一次搜尋都會讀過全部訊息</h3>
         <p>
-          包括回覆串流時每秒好幾次。換到的是「不可能忘記重算」，代價是重複的工。
-          目前對話量下這是划算的；如果哪天對話多到打字開始鈍，第一個該看的就是這裡。
+          這是「資料庫裡不存第二份、比對規則只有一份」換來的代價，250 毫秒的等待就是為它存在的。
+          如果哪天對話多到搜尋開始鈍，第一個該看的就是這裡；加一欄整形後的文字是往前相容的下一步，但那會是資料庫裡第一個派生欄位，要先回到儲存那一節寫明。
         </p>
       </div>
     </div>
@@ -1081,15 +1129,15 @@
         自己說的話全被刪掉的對話，標題是「（訊息已刪除）」，不是「還沒說話」。</li>
       <li><strong>對話的「最後更新時間」只跟著內容走。</strong>新增訊息、訊息文字改變、訊息被移除、訊息被刪除或復原才算一次更新（訊息算不算數是內容的一部分）；切過去看一眼、切走都不算。否則「最近」會變成「最近被看過」，而歷史清單與搜尋結果的排序都靠這個時間。</li>
       <li><strong>一段對話只有一個人格、一個模型。</strong>切換任何一個都會開新對話。不然歷史清單上那個標籤就是在說謊。</li>
-      <li><strong>對話之間的隔離是結構性的，不是靠記得清快取。</strong>一段對話就是資料庫裡以 id 為主鍵的一列，訊息打包在那一列裡；每一次存檔與刪除都只指名一個 id、只下一個指令，不會一次動到兩段，也不會留下寫到一半的一段。</li>
+      <li><strong>對話之間的隔離是結構性的，不是靠記得清快取。</strong>一則訊息的主鍵是「哪一段＋訊息 id」；每一次存檔與刪除都只指名一個對話 id，包在一筆交易裡，不會動到別段，也不會留下寫到一半的一段。</li>
       <li><strong>歷史清單是算出來的，不是存起來的。</strong>它跟著資料庫的變動與「現在開著哪一段」持續重算；沒有任何地方需要記得「存完要重讀清單」。</li>
       <li><strong>串流片段只能顯示，不能保存。</strong>MediaPipe 逐片段解碼，多位元組字元被切在片段邊界就會壞掉。結尾的 Complete 是一次解碼的，那才是要存下來的版本。</li>
       <li><strong>比較頁刻意不設長度上限，也不套人格。</strong>用中性 prompt 是為了量「誰答得好」而不是「誰比較會演」；不設上限是因為一個模型停不下來，正是比較時最該看到的事。</li>
-      <li><strong>讀回來的就是存進去的。</strong>讀取時不修復、不去空白、不改寫任何文字；舊版的 JSON 紀錄不搬遷，所以也沒有需要重新貼標的舊對話。儲存裡出現認不得的模型或人格名稱時，退回預設值。</li>
+      <li><strong>讀回來的就是存進去的。</strong>讀取時不修復、不去空白、不改寫任何文字，刪除狀態也一樣；從舊結構升級時同樣一個碼位都不動。更早的一段對話一個 JSON 檔的紀錄不搬遷，所以也沒有需要重新貼標的舊對話。儲存裡出現認不得的模型或人格名稱時，退回預設值。</li>
       <li><strong>預設模型只管新對話。</strong>啟動時接續的那段對話沿用它自己的模型，會蓋過預設值——這是刻意的，理由見上面的啟動那節。</li>
       <li><strong>只有真的打包進來的模型才會被提供。</strong>選單列的是 assets 裡實際存在的那幾個；記住的模型如果已經不在了，就退回現在裝得到的第一個，不會把 App 卡在一個載不起來的選擇上。</li>
       <li><strong>每個 Session 都給新的隨機種子。</strong>MediaPipe 的預設值是 0，而這個 App 每則訊息開一個新 Session，兩者相加會讓同一個問題永遠得到一字不差的同一個答案——包括同一個壞答案。</li>
-      <li><strong>搜尋的範圍是使用者看得到的一切</strong>，包含還沒存檔的對話和正在串流的回覆。理由與細節見上一節（搜尋比對的是記憶體）。</li>
+      <li><strong>搜尋的範圍是使用者看得到的一切</strong>，包含還沒存檔的對話和正在串流的回覆。開著的那一段看記憶體、其餘的從資料庫讀出來，用的是同一份比對規則。理由與細節見上一節。</li>
     </ul>
   </section>
 
@@ -1114,22 +1162,26 @@
           <tr><td class="layer-cell">畫面</td><td class="path">ui/SearchScreen.kt</td><td>搜尋輸入與命中列表。自己不持有狀態，也不決定什麼算命中</td></tr>
           <tr><td class="layer-cell">畫面</td><td class="path">ui/CompareScreen.kt</td><td>比較畫面與結果卡片</td></tr>
           <tr><td class="layer-cell">畫面</td><td class="path">ui/RichText.kt</td><td>把解析好的 Markdown 區塊畫成文字</td></tr>
-          <tr><td class="layer-cell">狀態</td><td class="path">chat/ChatViewModel.kt</td><td>對話狀態、人格與模型切換、長度上限與迴圈中斷、使用者停止與停止當下的存檔、刪除與復原一則訊息並當下存檔、存檔、啟動還原、查詢字串；把歷史清單接到資料庫的變動上；資料重來、開不起來、存檔失敗時要顯示的提示</td></tr>
-          <tr><td class="layer-cell">狀態</td><td class="path">chat/Conversation.kt</td><td>訊息與對話的資料模型（含訊息的刪除狀態）、引擎狀態、UI state、儲存提示的文字；也是「所有對話」＝開啟中的那段加上歷史的定義處。有已刪除訊息時的標題、預覽、空白判斷、內容有沒有改變、送給模型的上下文、某一則能做哪些長按動作、複製出來的文字，都在這裡，不依賴 Android、有 JVM 測試</td></tr>
+          <tr><td class="layer-cell">狀態</td><td class="path">chat/ChatViewModel.kt</td><td>對話狀態、人格與模型切換、長度上限與迴圈中斷、使用者停止與停止當下的存檔、刪除與復原一則訊息並當下存檔、存檔、啟動還原、查詢字串；把歷史清單接到資料庫的變動上；把搜尋的結果接到狀態送出去的路上；資料重來、開不起來、存檔失敗時要顯示的提示</td></tr>
+          <tr><td class="layer-cell">狀態</td><td class="path">chat/Conversation.kt</td><td>訊息與對話的資料模型（含訊息的刪除狀態）、歷史清單一列帶的東西（<code>HistoryEntry</code>）、引擎狀態、UI state、儲存提示的文字。有已刪除訊息時的標題、預覽、空白判斷、內容有沒有改變、送給模型的上下文、某一則能做哪些長按動作、複製出來的文字，都在這裡，不依賴 Android、有 JVM 測試</td></tr>
           <tr><td class="layer-cell">狀態</td><td class="path">compare/CompareViewModel.kt</td><td>依序執行、計時、tok/s</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/TextRepair.kt</td><td>byte-level 還原、反跳脫、硬換行標記與停止 token 清理</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/Degeneration.kt</td><td>這段回覆是不是卡在重複迴圈；重複的尾巴要收到哪裡</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ModelMarkdown.kt</td><td>模型寫的那一點 Markdown 該怎麼切成區塊與強調</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ConversationSearch.kt</td><td>什麼算命中（已刪除的訊息不算）、片段怎麼裁、標示要落在哪幾格</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">chat/SearchAssembly.kt</td><td>一次搜尋怎麼組起來：輸入停 250 毫秒才開始（清空不等）、開著的那一段取記憶體、其餘一批一批向資料層要、同一個 id 留記憶體那份、晚到的結果作廢。不自己比對。用假的資料來源與測試控制的時間測</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/HistoryList.kt</td><td>歷史清單＝存下來的所有對話扣掉開著的那段，兩邊任一變動就重算</td></tr>
-          <tr><td class="layer-cell">純邏輯</td><td class="path">data/ConversationRecords.kt</td><td>一段對話和資料庫裡那一列怎麼互轉（含每則訊息的刪除狀態；缺欄位讀成未刪除）；解不開的列怎麼處理；空白對話存檔時要刪而不是寫。那一列的類別帶著 Room 的表格標註，但這個檔不開資料庫、不依賴 Android</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">data/ConversationRecords.kt</td><td>一段對話和資料庫裡「一列對話＋它的訊息列」怎麼互轉（含每則訊息的刪除狀態與順序）；讀不起來的一段怎麼處理；空白對話存檔時要刪而不是寫。兩張表的類別帶著 Room 的表格標註，但這個檔不開資料庫、不依賴 Android</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">data/LegacyThreadRows.kt</td><td>舊結構的一列（訊息是一段 JSON）→ 新結構的一段對話加它的訊息列，或「這一列解不開」。升級時搬遷跑的就是這一份</td></tr>
+          <tr><td class="layer-cell">純邏輯</td><td class="path">data/HistoryRows.kt</td><td>歷史清單的查詢替每一段帶回來的那幾樣東西 → 清單上的一列；標題與預覽仍然問 <code>Conversation</code> 那一份規則；讀不起來的那一段不列</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">data/LegacyConversations.kt</td><td>啟動時刪掉舊版的對話目錄，只刪那一個</td></tr>
           <tr><td class="layer-cell">純邏輯</td><td class="path">chat/ReplyEnding.kt</td><td>一則回覆有五種結束方式（正常、長度上限、重複迴圈、使用者停止、失敗），各自留下什麼文字，以及哪一種不留下回覆</td></tr>
           <tr><td class="layer-cell">模型</td><td class="path">llm/LlmEngine.kt</td><td>單例引擎。模型載入與卸載、Session 生命週期、串流、token 預算裁切</td></tr>
           <tr><td class="layer-cell">模型</td><td class="path">llm/ModelSpec.kt</td><td>有哪些模型可以跑、每個模型的 prompt 格式與 token 上限</td></tr>
           <tr><td class="layer-cell">模型</td><td class="path">llm/ModelStore.kt</td><td>哪些模型真的打包進來了、把它解壓到 filesDir</td></tr>
-          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationRepository.kt</td><td>對話從哪裡來、到哪裡去。聊天層唯一的入口；行程內唯一的資料庫實例；分辨內容壞了（重來）、開不起來（不動、回報）、寫不進去（不動、回報）</td></tr>
-          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationDatabase.kt</td><td>Room 資料庫與它的四個指令：取全部（可訂閱）、依 id 取、寫入、刪除</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationRepository.kt</td><td>對話從哪裡來、到哪裡去。聊天層唯一的入口；行程內唯一的資料庫實例；歷史清單的資料流、依 id 取一段、搜尋時一批一批交出存下來的對話；分辨內容壞了（重來）、開不起來（不動、回報，含結構版本對不上）、寫不進去（不動、回報）</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationDatabase.kt</td><td>Room 資料庫、結構版本號、與它的指令：歷史清單的查詢（可訂閱）、依 id 取一段、依一批 id 取整段、寫入一段（一筆交易）、刪除一段（一筆交易）</td></tr>
+          <tr><td class="layer-cell">資料</td><td class="path">data/ConversationMigrations.kt</td><td>結構每一次前進的搬遷；目前只有 1→2（訊息從一段 JSON 拆成各自的列）</td></tr>
           <tr><td class="layer-cell">資料</td><td class="path">data/SessionPreferences.kt</td><td>使用者上次停在哪：對話 id、模型、人格</td></tr>
           <tr><td class="layer-cell">人格</td><td class="path">persona/Persona.kt</td><td>五種人格的 systemPrompt 與開場白</td></tr>
         </tbody>
@@ -1138,15 +1190,15 @@
     <p style="font-size:14px;color:var(--muted)">
       「純邏輯」那一層刻意不依賴 Android、Compose，也不開資料庫，所以上表列為純邏輯的每一塊都能在 JVM 上直接跑單元測試（<code>app/src/test</code>）。
       唯一的例外是 <code>data/ConversationRecords.kt</code> 帶著 Room 的表格標註（只是標註，不需要資料庫或 Android 就能執行）。
-      資料庫本身沒有自動化測試，它靠的是「每次寫入只有一個指令」這個結構與裝置上的驗收。
+      資料庫本身沒有自動化測試，它靠的是「存檔與刪除各包在一筆交易裡」這個結構與裝置上的驗收。
       畫面只負責把算好的結果畫出來——搜尋的標示位置就是這樣送過去的。
     </p>
     <div class="note">
       <h3><code>ConversationRepository</code>：一個行程一份，只知道存下來的東西</h3>
       <p>
         它曾經什麼事都不做，只是轉發。換成資料庫之後它有了三件事：握著行程內唯一的資料庫實例（Room 只通知同一個實例的訂閱者，兩個實例會讓歷史清單停在舊的樣子）、
-        把「取全部」做成會跟著變動重送的資料流、以及分辨「內容壞了」（丟掉重來並提示）、「開不起來」（什麼都不丟，讓畫面告知）和「寫不進去」（什麼都不丟，回報給呼叫端），判斷不出來時當成開不起來。
-        它仍然刻意沒有搜尋或查詢方法——搜尋要看畫面上有什麼，而它只知道存下來了什麼。
+        把歷史清單做成會跟著變動重送的資料流、以及分辨「內容壞了」（丟掉重來並提示）、「開不起來」（什麼都不丟，讓畫面告知）和「寫不進去」（什麼都不丟，回報給呼叫端），判斷不出來時當成開不起來。
+        搜尋時它把存下來的對話一批一批交出去，但<strong>不判斷什麼算命中</strong>，也回答不了「畫面上有什麼」——它只知道存下來了什麼。
       </p>
     </div>
   </section>
