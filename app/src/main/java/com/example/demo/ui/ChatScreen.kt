@@ -70,7 +70,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -620,7 +619,7 @@ private fun MessageBubble(
         val actions = message.longPressActions
         // Where the finger was, so the menu opens there: a reply taller than the screen
         // would otherwise open it at an edge that may not even be in view.
-        var pressedAt by remember { mutableStateOf<Offset?>(null) }
+        var menu by remember { mutableStateOf(MenuAnchor.Closed) }
         var bubbleHeight by remember { mutableStateOf(0) }
         val haptics = LocalHapticFeedback.current
         val context = LocalContext.current
@@ -643,7 +642,7 @@ private fun MessageBubble(
                                 detectTapGestures(
                                     onLongPress = { at ->
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        pressedAt = at
+                                        menu = menu.openedAt(at)
                                     },
                                 )
                             }
@@ -687,19 +686,19 @@ private fun MessageBubble(
             }
             // The menu hangs from the bubble's bottom-left corner; this moves it to the finger.
             val menuOffset = with(LocalDensity.current) {
-                val at = pressedAt ?: Offset.Zero
+                val at = menu.position
                 DpOffset(at.x.toDp(), (at.y - bubbleHeight).toDp())
             }
             DropdownMenu(
-                expanded = pressedAt != null,
-                onDismissRequest = { pressedAt = null },
+                expanded = menu.expanded,
+                onDismissRequest = { menu = menu.closed() },
                 offset = menuOffset,
             ) {
                 if (MessageAction.Copy in actions) {
                     DropdownMenuItem(
                         text = { Text("複製") },
                         onClick = {
-                            pressedAt = null
+                            menu = menu.closed()
                             context.getSystemService(ClipboardManager::class.java)
                                 .setPrimaryClip(ClipData.newPlainText("", message.clipboardText))
                         },
@@ -709,7 +708,7 @@ private fun MessageBubble(
                     DropdownMenuItem(
                         text = { Text("讚") },
                         onClick = {
-                            pressedAt = null
+                            menu = menu.closed()
                             onLike()
                         },
                     )
@@ -718,7 +717,7 @@ private fun MessageBubble(
                     DropdownMenuItem(
                         text = { Text("取消讚") },
                         onClick = {
-                            pressedAt = null
+                            menu = menu.closed()
                             onUnlike()
                         },
                     )
@@ -727,7 +726,7 @@ private fun MessageBubble(
                     DropdownMenuItem(
                         text = { Text("刪除") },
                         onClick = {
-                            pressedAt = null
+                            menu = menu.closed()
                             onDelete()
                         },
                     )
