@@ -19,19 +19,36 @@ data class ChatMessage(
      * reading — see [Conversation.title] and its neighbours.
      */
     val deleted: Boolean = false,
+    /**
+     * The reader marked this reply as one they liked. Nothing but the bubble's mark reads
+     * this: not the model's context, not search, not the clipboard, not the clock.
+     */
+    val liked: Boolean = false,
 )
 
 /** What a long press on a message offers. */
-enum class MessageAction { Copy, Delete }
+enum class MessageAction { Copy, Like, Unlike, Delete }
 
 /**
  * A reply still arriving offers nothing: what would be copied or deleted is not settled
  * yet. A deleted message offers nothing either — its one way back is the restore link.
  * This asks about the message alone, so a reply streaming in elsewhere in the thread
  * takes nothing away from the finished ones.
+ *
+ * Only the other side's messages can be liked — every kind of them, the opener and the
+ * app's own failure lines included, since nothing stored tells those apart. What the user
+ * said is never offered a like, whatever its stored state says.
  */
 val ChatMessage.longPressActions: Set<MessageAction>
-    get() = if (streaming || deleted) emptySet() else setOf(MessageAction.Copy, MessageAction.Delete)
+    get() = when {
+        streaming || deleted -> emptySet()
+        author == Author.You -> setOf(MessageAction.Copy, MessageAction.Delete)
+        else -> setOf(
+            MessageAction.Copy,
+            if (liked) MessageAction.Unlike else MessageAction.Like,
+            MessageAction.Delete,
+        )
+    }
 
 /**
  * The words as stored, not as drawn: a reply keeps its Markdown marks, and an ending
@@ -112,7 +129,8 @@ data class Conversation(
  * Whether two versions of a thread say the same thing: the same messages, in the same
  * order, with the same words, each still there or not. Deliberately blind to
  * [ChatMessage.streaming] — a reply that has stopped arriving contains exactly the text
- * it already contained.
+ * it already contained — and to [ChatMessage.liked]: a like is a mark on the content, not
+ * content, so liking an old reply does not send its thread to the top of every list.
  */
 internal fun Conversation.hasSameContentAs(other: Conversation): Boolean =
     messages.size == other.messages.size &&
@@ -133,6 +151,9 @@ fun Conversation.contextForNextTurn(): List<Turn> =
         .filterNot { it.deleted }
         .map { Turn(fromUser = it.author == Author.You, text = it.text) }
         .dropWhile { !it.fromUser }
+
+fun Conversation.withMessageLiked(messageId: Long, liked: Boolean): Conversation =
+    copy(messages = messages.map { if (it.id == messageId) it.copy(liked = liked) else it })
 
 fun Conversation.withMessageDeleted(messageId: Long, deleted: Boolean): Conversation =
     copy(messages = messages.map { if (it.id == messageId) it.copy(deleted = deleted) else it })

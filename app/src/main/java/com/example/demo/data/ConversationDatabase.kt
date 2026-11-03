@@ -119,4 +119,4 @@ abstract class ConversationDatabase : RoomDatabase() {
     }
 }
 
-const val SCHEMA_VERSION = 2
+const val SCHEMA_VERSION = 3

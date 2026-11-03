@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 /** Every step the tables have taken. A new [SCHEMA_VERSION] needs a new entry here. */
 object ConversationMigrations {
-    val all: Array<Migration> = arrayOf(MessagesGetTheirOwnRows)
+    val all: Array<Migration> = arrayOf(MessagesGetTheirOwnRows, MessagesCanBeLiked)
 }
 
 /**
@@ -91,5 +91,18 @@ private object MessagesGetTheirOwnRows : Migration(1, 2) {
                 put("deleted", if (message.deleted) 1 else 0)
             })
         }
+    }
+}
+
+/**
+ * Version 3 adds whether the reader liked a message. Every message already on the phone
+ * was written before there was such a thing, so each one comes over not liked; nothing
+ * else about a row changes, the thread's updated time included.
+ */
+private object MessagesCanBeLiked : Migration(2, 3) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Word for word what Room expects of version 3 — see app/schemas.
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `liked` INTEGER NOT NULL DEFAULT 0")
     }
 }

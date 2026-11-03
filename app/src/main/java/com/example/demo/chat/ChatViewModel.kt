@@ -434,6 +434,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { persist(changed) }
     }
 
+    // ---- liking --------------------------------------------------------------
+
+    fun likeMessage(id: Long) = setMessageLiked(id, liked = true)
+
+    fun unlikeMessage(id: Long) = setMessageLiked(id, liked = false)
+
+    /**
+     * Saved on the spot for the same reason a delete is. The clock does not move:
+     * [updateThread] does not count a like as a change of content.
+     */
+    private fun setMessageLiked(id: Long, liked: Boolean) {
+        val target = _uiState.value.conversation.messages.firstOrNull { it.id == id } ?: return
+        val action = if (liked) MessageAction.Like else MessageAction.Unlike
+        if (action !in target.longPressActions) return
+        updateThread { it.withMessageLiked(id, liked) }
+        val changed = _uiState.value.conversation
+        viewModelScope.launch { persist(changed) }
+    }
+
     private fun updateMessage(id: Long, text: String, streaming: Boolean) {
         updateThread { current ->
             current.copy(

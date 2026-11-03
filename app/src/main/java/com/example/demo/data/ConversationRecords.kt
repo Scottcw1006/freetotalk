@@ -1,5 +1,6 @@
 package com.example.demo.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.example.demo.chat.Author
@@ -41,6 +42,8 @@ data class MessageRecord(
     val text: String,
     val createdAt: Long,
     val deleted: Boolean,
+    /** 1 when the reader liked this message. Rows from before likes existed read 0. */
+    @ColumnInfo(defaultValue = "0") val liked: Boolean = false,
 )
 
 /** A thread's row together with its message rows, in order. */
@@ -83,6 +86,7 @@ fun Conversation.toRecord(): ThreadRecord = ThreadRecord(
             text = message.text,
             createdAt = message.createdAt,
             deleted = message.deleted,
+            liked = message.liked,
         )
     },
 )
@@ -125,4 +129,5 @@ private fun MessageRecord.toMessage() = ChatMessage(
     text = text,
     createdAt = createdAt,
     deleted = deleted,
+    liked = liked,
 )

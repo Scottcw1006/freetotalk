@@ -229,7 +229,8 @@ class MessageDeletionTest {
             them(4, "出錯了：out of memory"),
         )
 
-        for (message in finished) assertEquals(message.text, copyAndDelete, message.longPressActions)
+        // Exactly what else the other side's messages offer is MessageLikeTest's to say.
+        for (message in finished) assertTrue(message.text, message.longPressActions.containsAll(copyAndDelete))
     }
 
     @Test
@@ -247,8 +248,8 @@ class MessageDeletionTest {
     fun `finished messages stay available while another one is streaming`() {
         val conversation = thread(them(0, "嗨"), you(1, "hi"), them(2, "…", streaming = true))
 
-        assertEquals(copyAndDelete, conversation.messages[0].longPressActions)
-        assertEquals(copyAndDelete, conversation.messages[1].longPressActions)
+        assertTrue(conversation.messages[0].longPressActions.containsAll(copyAndDelete))
+        assertTrue(conversation.messages[1].longPressActions.containsAll(copyAndDelete))
         assertEquals(emptySet<MessageAction>(), conversation.messages[2].longPressActions)
     }
 

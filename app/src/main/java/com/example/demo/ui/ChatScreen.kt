@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -228,6 +229,8 @@ fun ChatApp(viewModel: ChatViewModel = viewModel()) {
                         onStop = viewModel::stop,
                         onDeleteMessage = viewModel::deleteMessage,
                         onRestoreMessage = viewModel::restoreMessage,
+                        onLikeMessage = viewModel::likeMessage,
+                        onUnlikeMessage = viewModel::unlikeMessage,
                         loading = status.takeIf { it !is EngineStatus.Ready },
                     )
                 }
@@ -511,6 +514,8 @@ private fun ChatPane(
     onStop: () -> Unit,
     onDeleteMessage: (Long) -> Unit,
     onRestoreMessage: (Long) -> Unit,
+    onLikeMessage: (Long) -> Unit,
+    onUnlikeMessage: (Long) -> Unit,
     loading: EngineStatus?,
 ) {
     val listState = rememberLazyListState()
@@ -543,6 +548,8 @@ private fun ChatPane(
                     message = message,
                     onDelete = { onDeleteMessage(message.id) },
                     onRestore = { onRestoreMessage(message.id) },
+                    onLike = { onLikeMessage(message.id) },
+                    onUnlike = { onUnlikeMessage(message.id) },
                 )
             }
         }
@@ -586,7 +593,13 @@ private fun LoadingBanner(status: EngineStatus) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, onDelete: () -> Unit, onRestore: () -> Unit) {
+private fun MessageBubble(
+    message: ChatMessage,
+    onDelete: () -> Unit,
+    onRestore: () -> Unit,
+    onLike: () -> Unit,
+    onUnlike: () -> Unit,
+) {
     val fromMe = message.author == Author.You
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -643,18 +656,32 @@ private fun MessageBubble(message: ChatMessage, onDelete: () -> Unit, onRestore:
                     MaterialTheme.colorScheme.onSurfaceVariant
                 }
                 val inset = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                when {
-                    message.text.isEmpty() && message.streaming ->
-                        TypingIndicator(Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
-                    // Only the model writes Markdown. What the user typed is shown as typed.
-                    fromMe -> Text(
-                        text = message.text,
-                        modifier = inset,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = ink,
-                    )
-                    else -> ProvideTextStyle(MaterialTheme.typography.bodyLarge) {
-                        ModelMarkdownText(text = message.text, color = ink, modifier = inset)
+                // The mark sits inside the bubble, under the words and apart from them, so
+                // it never becomes part of the text and always reads as this bubble's own.
+                Column(horizontalAlignment = Alignment.End) {
+                    when {
+                        message.text.isEmpty() && message.streaming ->
+                            TypingIndicator(Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
+                        // Only the model writes Markdown. What the user typed is shown as typed.
+                        fromMe -> Text(
+                            text = message.text,
+                            modifier = inset,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = ink,
+                        )
+                        else -> ProvideTextStyle(MaterialTheme.typography.bodyLarge) {
+                            ModelMarkdownText(text = message.text, color = ink, modifier = inset)
+                        }
+                    }
+                    if (message.liked && !fromMe) {
+                        Icon(
+                            Icons.Filled.ThumbUp,
+                            contentDescription = "已讚",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(end = 12.dp, bottom = 8.dp)
+                                .size(16.dp),
+                        )
                     }
                 }
             }
@@ -675,6 +702,24 @@ private fun MessageBubble(message: ChatMessage, onDelete: () -> Unit, onRestore:
                             pressedAt = null
                             context.getSystemService(ClipboardManager::class.java)
                                 .setPrimaryClip(ClipData.newPlainText("", message.clipboardText))
+                        },
+                    )
+                }
+                if (MessageAction.Like in actions) {
+                    DropdownMenuItem(
+                        text = { Text("讚") },
+                        onClick = {
+                            pressedAt = null
+                            onLike()
+                        },
+                    )
+                }
+                if (MessageAction.Unlike in actions) {
+                    DropdownMenuItem(
+                        text = { Text("取消讚") },
+                        onClick = {
+                            pressedAt = null
+                            onUnlike()
                         },
                     )
                 }
